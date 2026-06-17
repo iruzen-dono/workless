@@ -20,6 +20,7 @@ class DispatcherJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $executionId;
+    public string $priority = 'default';
     private ?Execution $execution = null;
 
     public function __construct(Execution $execution)

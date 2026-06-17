@@ -107,3 +107,61 @@ export const integrationsApi = {
       body: JSON.stringify(config),
     }),
 };
+
+// --- Queue Monitor ---
+export interface QueueStats {
+  queues: {
+    high: { pending: number; delayed: number; reserved: number; total: number };
+    default: { pending: number; delayed: number; reserved: number; total: number };
+    low: { pending: number; delayed: number; reserved: number; total: number };
+  };
+  failed_jobs: number;
+  active_workers: number;
+  total_queued: number;
+}
+
+export interface FailedJob {
+  id: number;
+  queue: string;
+  payload: Record<string, any>;
+  failed_at: string;
+  error_message?: string;
+}
+
+export interface PaginatedFailedJobs {
+  data: FailedJob[];
+  meta: {
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+  };
+}
+
+export const queueApi = {
+  stats: () =>
+    request<{ data: QueueStats }>('/queue/stats'),
+
+  failed: (page = 1, perPage = 10) =>
+    request<PaginatedFailedJobs>(`/queue/failed?page=${page}&per_page=${perPage}`),
+
+  retry: (id: number) =>
+    request<{ message: string }>(`/queue/failed/${id}/retry`, {
+      method: 'POST',
+    }),
+
+  forget: (id: number) =>
+    request<{ message: string }>(`/queue/failed/${id}`, {
+      method: 'DELETE',
+    }),
+
+  retryAll: () =>
+    request<{ message: string }>('/queue/failed/retry-all', {
+      method: 'POST',
+    }),
+
+  forgetAll: () =>
+    request<{ message: string }>('/queue/failed/forget-all', {
+      method: 'POST',
+    }),
+};

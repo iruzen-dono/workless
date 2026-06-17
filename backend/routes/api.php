@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ExecutionController;
 use App\Http\Controllers\Api\IntegrationController;
+use App\Http\Controllers\Api\QueueMonitorController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\StepConnectionController;
 use App\Http\Controllers\Api\StepController;
@@ -50,4 +51,10 @@ Route::middleware(['auth:sanctum', SetCurrentWorkspace::class])->group(function 
 
     // Schedules
     Route::apiResource('schedules', ScheduleController::class);
+
+    // Queue Monitor
+    Route::get('/queue/stats', [QueueMonitorController::class, 'stats']);
+    Route::get('/queue/failed', [QueueMonitorController::class, 'failedJobs']);
+    Route::post('/queue/failed/{id}/retry', [QueueMonitorController::class, 'retry']);
+    Route::delete('/queue/failed/{id}', [QueueMonitorController::class, 'forget']);
 });

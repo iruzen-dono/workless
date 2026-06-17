@@ -184,8 +184,12 @@ class WorkflowController extends Controller
             'input_data' => $request->input('input_data', $request->input('input', [])),
         ]);
 
-        // Dispatch the execution job
-        DispatcherJob::dispatch($execution);
+        // Dispatch to priority queue (manual executions = high priority)
+        $priority = in_array($request->input('priority', 'high'), ['high', 'default', 'low'])
+            ? $request->input('priority', 'high')
+            : 'high';
+
+        DispatcherJob::dispatch($execution)->onQueue($priority);
 
         return response()->json([
             'message' => 'Execution created.',
