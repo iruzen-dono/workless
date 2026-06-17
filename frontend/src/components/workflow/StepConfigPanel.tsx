@@ -122,6 +122,23 @@ function getFieldsForStepType(stepType: string): ConfigField[] {
           ],
         },
       ];
+    case "ai":
+      return [
+        { key: "label", label: "Label", type: "text", placeholder: "AI step" },
+        { key: "prompt", label: "Prompt", type: "textarea", placeholder: "Write your prompt here..." },
+        {
+          key: "provider",
+          label: "Provider",
+          type: "select",
+          options: [
+            { label: "OpenAI", value: "openai" },
+            { label: "Anthropic", value: "anthropic" },
+            { label: "Ollama (Local)", value: "ollama" },
+          ],
+        },
+        { key: "model", label: "Model", type: "text", placeholder: "gpt-4o-mini" },
+        { key: "api_key", label: "API Key", type: "text", placeholder: "sk-..." },
+      ];
     default:
       return [
         { key: "label", label: "Label", type: "text", placeholder: "Step label" },

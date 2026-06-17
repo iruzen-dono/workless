@@ -19,6 +19,7 @@ class StepRunnerService
             'error_handler' => new ErrorHandlerRunner(),
             'code' => new CodeRunner(),
             'approval' => new ApprovalRunner(),
+            'ai' => new AiRunner(),
         ];
     }
 

@@ -39,6 +39,7 @@ import {
   LayoutGrid,
   Link as LinkIcon,
   UserCheck,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -61,6 +62,7 @@ import ErrorHandlerNode from "@/components/workflow/nodes/ErrorHandlerNode";
 import CodeNode from "@/components/workflow/nodes/CodeNode";
 import WebhookNode from "@/components/workflow/nodes/WebhookNode";
 import ApprovalNode from "@/components/workflow/nodes/ApprovalNode";
+import AiNode from "@/components/workflow/nodes/AiNode";
 
 const nodeTypes = {
   trigger: TriggerNode,
@@ -74,6 +76,7 @@ const nodeTypes = {
   error_handler: ErrorHandlerNode,
   code: CodeNode,
   approval: ApprovalNode,
+  ai: AiNode,
 };
 
 const edgeTypes = {
@@ -100,6 +103,7 @@ const paletteItems: PaletteItem[] = [
   { type: "code", label: "Code", category: "action", icon: <Code2 className="h-3.5 w-3.5" /> },
   { type: "error_handler", label: "Error Handler", category: "action", icon: <ShieldAlert className="h-3.5 w-3.5" /> },
   { type: "approval", label: "Approval", category: "action", icon: <UserCheck className="h-3.5 w-3.5" /> },
+  { type: "ai", label: "AI", category: "action", icon: <Sparkles className="h-3.5 w-3.5" /> },
 ];
 
 const categoryColors: Record<string, string> = {
@@ -942,6 +946,7 @@ export default function WorkflowBuilderPage() {
                     if (type === "code") return "#14b8a6";
                     if (type === "error_handler") return "#f97316";
                     if (type === "approval") return "#ec4899";
+                    if (type === "ai") return "#8b5cf6";
                     return "#8b5cf6";
                   }}
                   maskColor="rgba(9,9,11,0.7)"
