@@ -11,6 +11,7 @@ import {
   BarChart3,
   Home,
   ChevronDown,
+  Clock,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -18,6 +19,7 @@ const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
   { href: "/dashboard/workflows", label: "Workflows", icon: Workflow },
   { href: "/dashboard/executions", label: "Exécutions", icon: PlayCircle },
+  { href: "/dashboard/schedules", label: "Schedules", icon: Clock },
   { href: "/dashboard/integrations", label: "Intégrations", icon: Cable },
   { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/dashboard/settings", label: "Paramètres", icon: Settings },

@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Schedule extends Model
 {
     protected $fillable = [
+        'name',
+        'description',
         'workflow_id',
         'cron_expression',
         'timezone',

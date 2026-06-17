@@ -13,6 +13,7 @@ import {
   ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import dagre from "dagre";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
@@ -29,6 +30,11 @@ import {
   Redo2,
   Copy,
   ClipboardPaste,
+  Download,
+  Maximize,
+  Map,
+  FileDown,
+  LayoutGrid,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -126,6 +132,7 @@ export default function WorkflowBuilderPage() {
 
   const [showConfig, setShowConfig] = useState(false);
   const [clipboard, setClipboard] = useState<Node | null>(null);
+  const [showMinimap, setShowMinimap] = useState(true);
 
   // Derived undo/redo state
   const canUndo = historyIndex > 0;
@@ -343,6 +350,56 @@ export default function WorkflowBuilderPage() {
     setShowConfig(false);
   }, [clearSelection]);
 
+  const handleAutoLayout = useCallback(() => {
+    const g = new dagre.graphlib.Graph();
+    g.setDefaultEdgeLabel(() => ({}));
+    g.setGraph({ rankdir: "TB", nodesep: 60, ranksep: 120, marginx: 40, marginy: 40 });
+
+    const currentNodes = useWorkflowStore.getState().nodes;
+    const currentEdges = useWorkflowStore.getState().edges;
+
+    if (currentNodes.length === 0) return;
+
+    // Default node dimensions
+    const nodeWidth = 220;
+    const nodeHeight = 80;
+
+    for (const node of currentNodes) {
+      g.setNode(node.id, {
+        width: nodeWidth,
+        height: nodeHeight,
+      });
+    }
+
+    for (const edge of currentEdges) {
+      g.setEdge(edge.source, edge.target);
+    }
+
+    dagre.layout(g);
+
+    const layoutedNodes = currentNodes.map((node) => {
+      const pos = g.node(node.id);
+      return {
+        ...node,
+        position: {
+          x: pos.x - nodeWidth / 2,
+          y: pos.y - nodeHeight / 2,
+        },
+      };
+    });
+
+    useWorkflowStore.getState().setNodes(layoutedNodes);
+    toast.success("Auto-layout appliqué");
+  }, []);
+
+  const handleZoomToFit = useCallback(() => {
+    reactFlowInstance?.fitView({ padding: 0.2, duration: 200 });
+  }, [reactFlowInstance]);
+
+  const handleToggleMinimap = useCallback(() => {
+    setShowMinimap((prev) => !prev);
+  }, []);
+
   const handleSave = () => {
     if (workflowMeta) {
       saveMutation.mutate();
@@ -398,6 +455,40 @@ export default function WorkflowBuilderPage() {
     const stepType = (clipboard.data?.stepType as string) || "action";
     addNode(stepType, newPos, clipboard.data?.label as string);
     toast.success("Step collé");
+  };
+
+  const handleExport = async () => {
+    const currentNodes = useWorkflowStore.getState().nodes;
+    const currentEdges = useWorkflowStore.getState().edges;
+
+    const exportData = {
+      name: workflowMeta?.name || "Workflow",
+      description: workflowData?.data?.description || null,
+      version: 1,
+      steps: currentNodes.map((node) => ({
+        id: node.id,
+        type: (node.data?.stepType as string) || "action",
+        label: node.data?.label as string,
+        config: node.data?.config || {},
+        position: { x: node.position.x, y: node.position.y },
+      })),
+      connections: currentEdges.map((edge) => ({
+        from: edge.source,
+        to: edge.target,
+        sourceHandle: edge.sourceHandle || undefined,
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = window.document.createElement("a");
+    a.href = url;
+    a.download = `${(workflowMeta?.name || "workflow").replace(/\s+/g, "_")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Workflow exporté");
   };
 
   // Keyboard shortcuts
@@ -466,6 +557,27 @@ export default function WorkflowBuilderPage() {
         return;
       }
 
+      // Ctrl+Shift+L / Cmd+Shift+L → Auto Layout
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "l") {
+        e.preventDefault();
+        handleAutoLayout();
+        return;
+      }
+
+      // Ctrl+0 / Cmd+0 → Zoom to Fit
+      if ((e.ctrlKey || e.metaKey) && e.key === "0") {
+        e.preventDefault();
+        handleZoomToFit();
+        return;
+      }
+
+      // Ctrl+M / Cmd+M → Toggle Minimap
+      if ((e.ctrlKey || e.metaKey) && e.key === "m") {
+        e.preventDefault();
+        handleToggleMinimap();
+        return;
+      }
+
       // Escape → Close config panel and clear selection
       if (e.key === "Escape") {
         setShowConfig(false);
@@ -476,7 +588,7 @@ export default function WorkflowBuilderPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedNode, clipboard, handleUndo, handleRedo]);
+  }, [selectedNode, clipboard, handleUndo, handleRedo, handleAutoLayout, handleZoomToFit, handleToggleMinimap]);
 
   if (workflowLoading) {
     return (
@@ -581,6 +693,52 @@ export default function WorkflowBuilderPage() {
 
           <div className="w-px h-5 bg-zinc-700 mx-1" />
 
+          {/* Auto Layout button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-zinc-500 hover:text-zinc-300"
+            onClick={handleAutoLayout}
+            title="Auto Layout (Ctrl+Shift+L)"
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </Button>
+
+          {/* Zoom to Fit button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-zinc-500 hover:text-zinc-300"
+            onClick={handleZoomToFit}
+            title="Zoom to Fit (Ctrl+0)"
+          >
+            <Maximize className="h-4 w-4" />
+          </Button>
+
+          {/* Toggle Minimap button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-zinc-500 hover:text-zinc-300"
+            onClick={handleToggleMinimap}
+            title={showMinimap ? "Cacher la minimap (Ctrl+M)" : "Afficher la minimap (Ctrl+M)"}
+          >
+            <Map className={`h-4 w-4 ${showMinimap ? "" : "text-zinc-600"}`} />
+          </Button>
+
+          {/* Export button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-zinc-500 hover:text-zinc-300"
+            onClick={handleExport}
+            title="Exporter le workflow"
+          >
+            <FileDown className="h-4 w-4" />
+          </Button>
+
+          <div className="w-px h-5 bg-zinc-700 mx-1" />
+
           {/* Execution indicator */}
           {isExecuting && (
             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-blue-900/30 border border-blue-800/50">
@@ -612,6 +770,21 @@ export default function WorkflowBuilderPage() {
           >
             <Play className="h-4 w-4 mr-1" />
             {executeMutation.isPending || isExecuting ? "Exécution..." : "Exécuter"}
+          </Button>
+
+          <div className="w-px h-5 bg-zinc-700 mx-1" />
+
+          {/* Export button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-zinc-500 hover:text-zinc-300"
+            title="Exporter en template"
+            onClick={() => {
+              window.location.href = `/dashboard/workflows/${workflowId}/export`;
+            }}
+          >
+            <FileDown className="h-4 w-4" />
           </Button>
         </div>
       </div>
@@ -694,20 +867,22 @@ export default function WorkflowBuilderPage() {
             >
               <Background color="#1e293b" gap={16} />
               <Controls className="bg-zinc-900 border-zinc-800 [&>button]:border-zinc-700 [&>button]:bg-zinc-800 [&>button]:text-zinc-400 [&>button:hover]:bg-zinc-700" />
-              <MiniMap
-                className="bg-zinc-900 border-zinc-800"
-                nodeColor={(n) => {
-                  const type = n.type;
-                  if (type === "trigger") return "#22c55e";
-                  if (type === "condition") return "#f59e0b";
-                  if (type === "delay") return "#3b82f6";
-                  if (type === "http_request") return "#0ea5e9";
-                  if (type === "email") return "#ec4899";
-                  if (type === "transform") return "#06b6d4";
-                  return "#8b5cf6";
-                }}
-                maskColor="rgba(9,9,11,0.7)"
-              />
+              {showMinimap && (
+                <MiniMap
+                  className="bg-zinc-900 border-zinc-800"
+                  nodeColor={(n) => {
+                    const type = n.type;
+                    if (type === "trigger") return "#22c55e";
+                    if (type === "condition") return "#f59e0b";
+                    if (type === "delay") return "#3b82f6";
+                    if (type === "http_request") return "#0ea5e9";
+                    if (type === "email") return "#ec4899";
+                    if (type === "transform") return "#06b6d4";
+                    return "#8b5cf6";
+                  }}
+                  maskColor="rgba(9,9,11,0.7)"
+                />
+              )}
             </ReactFlow>
           </ReactFlowProvider>
         </div>

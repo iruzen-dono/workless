@@ -52,6 +52,11 @@ export const workflowsApi = {
     request<{ data: Execution }>(`/workflows/${id}/execute`, {
       method: 'POST',
     }),
+
+  clone: (id: number) =>
+    request<{ data: Workflow }>(`/workflows/${id}/clone`, {
+      method: 'POST',
+    }),
 };
 
 // --- Steps ---

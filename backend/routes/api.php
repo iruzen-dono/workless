@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ExecutionController;
 use App\Http\Controllers\Api\IntegrationController;
+use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\StepConnectionController;
 use App\Http\Controllers\Api\StepController;
 use App\Http\Controllers\Api\WebhookController;
@@ -26,6 +27,9 @@ Route::middleware(['auth:sanctum', SetCurrentWorkspace::class])->group(function 
     Route::apiResource('workflows', WorkflowController::class);
     Route::post('/workflows/{workflow}/deploy', [WorkflowController::class, 'deploy']);
     Route::post('/workflows/{workflow}/execute', [WorkflowController::class, 'execute']);
+    Route::post('/workflows/{workflow}/clone', [WorkflowController::class, 'clone']);
+    Route::get('/workflows/{workflow}/export', [WorkflowController::class, 'export']);
+    Route::post('/workflows/import', [WorkflowController::class, 'import']);
 
     // Steps (nested under workflows)
     Route::apiResource('workflows.steps', StepController::class);
@@ -43,4 +47,7 @@ Route::middleware(['auth:sanctum', SetCurrentWorkspace::class])->group(function 
     // Integrations
     Route::get('/integrations', [IntegrationController::class, 'index']);
     Route::post('/integrations/{type}/connect', [IntegrationController::class, 'connect']);
+
+    // Schedules
+    Route::apiResource('schedules', ScheduleController::class);
 });

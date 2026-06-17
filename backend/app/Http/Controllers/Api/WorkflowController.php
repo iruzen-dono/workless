@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Controller;
 use App\Jobs\DispatcherJob;
 use App\Models\Workflow;
 use App\Models\WorkflowVersion;
 use App\Models\Execution;
+use App\Models\Step;
+use App\Models\StepConnection;
+use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -188,6 +190,157 @@ class WorkflowController extends Controller
         return response()->json([
             'message' => 'Execution created.',
             'data' => $execution,
+        ], 201);
+    }
+
+    public function clone(Request $request, Workflow $workflow): JsonResponse
+    {
+        $workspace = $request->attributes->get('workspace');
+
+        if ($workflow->workspace_id !== $workspace->id) {
+            return response()->json(['message' => 'Not found.'], 404);
+        }
+
+        // Clone the workflow
+        $clone = Workflow::create([
+            'workspace_id' => $workspace->id,
+            'name' => $workflow->name . ' (copy)',
+            'description' => $workflow->description,
+            'status' => 'draft',
+            'tags' => $workflow->tags,
+        ]);
+
+        // Clone all steps
+        $stepIdMap = []; // old_id => new_id
+        foreach ($workflow->steps as $step) {
+            $newStep = Step::create([
+                'workflow_id' => $clone->id,
+                'step_type' => $step->step_type,
+                'config' => $step->config,
+                'position_x' => $step->position_x,
+                'position_y' => $step->position_y,
+                'label' => $step->label,
+            ]);
+            $stepIdMap[$step->id] = $newStep->id;
+        }
+
+        // Clone step connections
+        foreach ($workflow->stepConnections as $connection) {
+            $newSourceId = $stepIdMap[$connection->source_step_id] ?? null;
+            $newTargetId = $stepIdMap[$connection->target_step_id] ?? null;
+            if ($newSourceId && $newTargetId) {
+                StepConnection::create([
+                    'workflow_id' => $clone->id,
+                    'source_step_id' => $newSourceId,
+                    'target_step_id' => $newTargetId,
+                    'label' => $connection->label,
+                    'condition_expression' => $connection->condition_expression,
+                ]);
+            }
+        }
+
+        $clone->load(['steps', 'stepConnections']);
+
+        return response()->json([
+            'message' => 'Workflow duplicated.',
+            'data' => $clone,
+        ], 201);
+    }
+
+    public function export(Request $request, Workflow $workflow): JsonResponse
+    {
+        $workspace = $request->attributes->get('workspace');
+
+        if ($workflow->workspace_id !== $workspace->id) {
+            return response()->json(['message' => 'Not found.'], 404);
+        }
+
+        $workflow->load(['steps', 'stepConnections']);
+
+        return response()->json([
+            'data' => [
+                'name' => $workflow->name,
+                'description' => $workflow->description,
+                'tags' => $workflow->tags,
+                'steps' => $workflow->steps->map(fn ($s) => [
+                    'step_type' => $s->step_type,
+                    'config' => $s->config,
+                    'position_x' => $s->position_x,
+                    'position_y' => $s->position_y,
+                    'label' => $s->label,
+                ]),
+                'connections' => $workflow->stepConnections->map(fn ($c) => [
+                    'source_step_index' => $workflow->steps->search(fn ($s) => $s->id === $c->source_step_id),
+                    'target_step_index' => $workflow->steps->search(fn ($s) => $s->id === $c->target_step_id),
+                    'label' => $c->label,
+                    'condition_expression' => $c->condition_expression,
+                ]),
+            ],
+        ]);
+    }
+
+    public function import(Request $request): JsonResponse
+    {
+        $workspace = $request->attributes->get('workspace');
+
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'tags' => 'nullable|array',
+            'steps' => 'required|array|min:1',
+            'steps.*.step_type' => 'required|string',
+            'steps.*.config' => 'nullable|array',
+            'steps.*.label' => 'nullable|string',
+            'connections' => 'sometimes|array',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation failed.', 'errors' => $validator->errors()], 422);
+        }
+
+        // Create the workflow
+        $workflow = Workflow::create([
+            'workspace_id' => $workspace->id,
+            'name' => $request->name,
+            'description' => $request->description ?? '',
+            'status' => 'draft',
+            'tags' => $request->tags,
+        ]);
+
+        // Create steps and track mapping
+        $stepIdMap = [];
+        foreach ($request->steps as $i => $stepData) {
+            $step = Step::create([
+                'workflow_id' => $workflow->id,
+                'step_type' => $stepData['step_type'],
+                'config' => $stepData['config'] ?? [],
+                'position_x' => $stepData['position_x'] ?? ($i * 50),
+                'position_y' => $stepData['position_y'] ?? ($i * 100),
+                'label' => $stepData['label'] ?? $stepData['step_type'],
+            ]);
+            $stepIdMap[$i] = $step->id;
+        }
+
+        // Create connections
+        foreach ($request->connections ?? [] as $conn) {
+            $sourceId = $stepIdMap[$conn['source_step_index']] ?? null;
+            $targetId = $stepIdMap[$conn['target_step_index']] ?? null;
+            if ($sourceId && $targetId) {
+                StepConnection::create([
+                    'workflow_id' => $workflow->id,
+                    'source_step_id' => $sourceId,
+                    'target_step_id' => $targetId,
+                    'label' => $conn['label'] ?? null,
+                    'condition_expression' => $conn['condition_expression'] ?? null,
+                ]);
+            }
+        }
+
+        $workflow->load(['steps', 'stepConnections']);
+
+        return response()->json([
+            'message' => 'Workflow imported.',
+            'data' => $workflow,
         ], 201);
     }
 }

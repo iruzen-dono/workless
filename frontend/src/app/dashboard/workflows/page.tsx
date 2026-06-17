@@ -1,9 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Search, Workflow, MoreHorizontal } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Workflow,
+  MoreHorizontal,
+  Upload,
+  Download,
+  Copy,
+} from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { workflowsApi } from "@/lib/api";
+import TemplateBrowser from "@/components/workflow/TemplateBrowser";
 
 const statusColors: Record<string, string> = {
   draft: "bg-zinc-800 text-zinc-400",
@@ -30,8 +39,10 @@ export default function WorkflowsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [showNewModal, setShowNewModal] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["workflows"],
@@ -73,6 +84,72 @@ export default function WorkflowsPage() {
     },
   });
 
+  const cloneMutation = useMutation({
+    mutationFn: (id: number) => workflowsApi.clone(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflows"] });
+      toast.success("Workflow dupliqué avec succès");
+    },
+    onError: (err: Error) => {
+      toast.error("Erreur: " + err.message);
+    },
+  });
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+
+      const name =
+        data.name || data.workflow?.name || "Imported Workflow";
+      const description =
+        data.description || data.workflow?.description || null;
+
+      const res = await workflowsApi.create({
+        name,
+        description,
+        status: "draft",
+      });
+
+      const workflowId = res.data.id;
+
+      // Import steps if present
+      const steps = data.steps || data.workflow?.steps || [];
+      for (const step of steps) {
+        await fetch(
+          `${
+            process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
+          }/workflows/${workflowId}/steps`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              step_type: step.step_type || step.type || "action",
+              label: step.label || "",
+              config: step.config || {},
+              position_x: step.position_x ?? step.position?.x ?? 250,
+              position_y: step.position_y ?? step.position?.y ?? 0,
+            }),
+          }
+        );
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["workflows"] });
+      toast.success("Workflow importé avec succès");
+      router.push(`/dashboard/workflows/${workflowId}`);
+    } catch (err: any) {
+      toast.error("Erreur lors de l'import: " + (err.message || "Fichier invalide"));
+    }
+
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const filtered = workflows.filter((w) =>
     w.name.toLowerCase().includes(search.toLowerCase())
   );
@@ -87,13 +164,30 @@ export default function WorkflowsPage() {
             Gérez vos automatisations
           </p>
         </div>
-        <Button
-          className="bg-violet-600 hover:bg-violet-500"
-          onClick={() => setShowNewModal(true)}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Nouveau workflow
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Importer
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={handleImport}
+          />
+          <Button
+            className="bg-violet-600 hover:bg-violet-500"
+            onClick={() => setShowTemplates(true)}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            + Créer
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
@@ -124,7 +218,7 @@ export default function WorkflowsPage() {
               </p>
               <Button
                 className="bg-violet-600 hover:bg-violet-500"
-                onClick={() => setShowNewModal(true)}
+                onClick={() => setShowTemplates(true)}
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Créer un workflow
@@ -185,6 +279,59 @@ export default function WorkflowsPage() {
                             Ouvrir
                           </DropdownMenuItem>
                           <DropdownMenuItem
+                            onClick={(e) => {
+                              e.preventDefault();
+                              cloneMutation.mutate(wf.id);
+                            }}
+                          >
+                            <Copy className="h-3.5 w-3.5 mr-2" />
+                            Dupliquer
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              try {
+                                const res = await workflowsApi.get(wf.id);
+                                const workflow = res.data;
+                                // Also fetch steps
+                                const stepsRes = await fetch(
+                                  `${
+                                    process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
+                                  }/workflows/${wf.id}/steps`
+                                );
+                                const stepsData = await stepsRes.json();
+                                const exportData = {
+                                  name: workflow.name,
+                                  description: workflow.description,
+                                  status: workflow.status,
+                                  steps: (stepsData.data || []).map((s: any) => ({
+                                    step_type: s.step_type,
+                                    label: s.label,
+                                    config: s.config,
+                                    position_x: s.position_x,
+                                    position_y: s.position_y,
+                                  })),
+                                };
+                                const blob = new Blob(
+                                  [JSON.stringify(exportData, null, 2)],
+                                  { type: "application/json" }
+                                );
+                                const url = URL.createObjectURL(blob);
+                                const a = window.document.createElement("a");
+                                a.href = url;
+                                a.download = `${workflow.name.replace(/\s+/g, "_")}.json`;
+                                a.click();
+                                URL.revokeObjectURL(url);
+                                toast.success("Workflow exporté");
+                              } catch {
+                                toast.error("Erreur lors de l'export");
+                              }
+                            }}
+                          >
+                            <Download className="h-3.5 w-3.5 mr-2" />
+                            Exporter
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
                             className="text-red-400"
                             onClick={(e) => {
                               e.preventDefault();
@@ -205,6 +352,12 @@ export default function WorkflowsPage() {
           )}
         </div>
       )}
+
+      {/* Template browser */}
+      <TemplateBrowser
+        open={showTemplates}
+        onOpenChange={setShowTemplates}
+      />
 
       {/* New workflow modal */}
       {showNewModal && (
