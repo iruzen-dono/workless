@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\ExecutionController;
 use App\Http\Controllers\Api\IntegrationController;
 use App\Http\Controllers\Api\StepConnectionController;
 use App\Http\Controllers\Api\StepController;
+use App\Http\Controllers\Api\WebhookController;
 use App\Http\Controllers\Api\WorkflowController;
 use App\Http\Middleware\SetCurrentWorkspace;
 use Illuminate\Support\Facades\Route;
@@ -12,13 +13,14 @@ use Illuminate\Support\Facades\Route;
 // ========== Public Routes ==========
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/webhook/{token}', [WebhookController::class, 'receive']);
 
 // ========== Protected Routes ==========
 Route::middleware(['auth:sanctum', SetCurrentWorkspace::class])->group(function () {
 
     // Auth
     Route::get('/auth/me', [AuthController::class, 'me']);
-    Route::post('/auth/logout', [AuthController::class, 'logout']);
+    Route::post('/auth/logout', [AuthController::class, 'logout'])->withoutMiddleware([SetCurrentWorkspace::class]);
 
     // Workflows
     Route::apiResource('workflows', WorkflowController::class);

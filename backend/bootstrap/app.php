@@ -17,6 +17,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'workspace' => \App\Http\Middleware\SetCurrentWorkspace::class,
         ]);
     })
+    ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule): void {
+        $schedule->command('schedule:check')->everyMinute()->withoutOverlapping();
+    })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*'),

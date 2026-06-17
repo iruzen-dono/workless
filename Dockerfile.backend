@@ -1,0 +1,34 @@
+# Build stage
+FROM php:8.3-cli-alpine AS build
+
+RUN apk add --no-cache postgresql-dev linux-headers $PHPIZE_DEPS \
+    && docker-php-ext-install pdo pdo_pgsql pcntl \
+    && pecl install redis \
+    && docker-php-ext-enable redis
+
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+WORKDIR /app
+COPY backend/composer.json backend/composer.lock ./
+RUN composer install --no-dev --no-interaction --no-scripts --optimize-autoloader
+
+COPY backend/ .
+RUN composer install --no-dev --no-interaction --optimize-autoloader
+
+# Production stage
+FROM php:8.3-fpm-alpine
+
+RUN apk add --no-cache postgresql-dev linux-headers $PHPIZE_DEPS \
+    && docker-php-ext-install pdo pdo_pgsql pcntl \
+    && pecl install redis \
+    && docker-php-ext-enable redis
+
+WORKDIR /app
+
+COPY --from=build /app /app
+
+RUN chown -R www-data:www-data /app/storage /app/bootstrap/cache
+
+EXPOSE 9000
+
+CMD ["php-fpm"]

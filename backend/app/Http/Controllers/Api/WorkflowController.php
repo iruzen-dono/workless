@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\DispatcherJob;
 use App\Models\Workflow;
 use App\Models\WorkflowVersion;
 use App\Models\Execution;
@@ -178,10 +179,11 @@ class WorkflowController extends Controller
             'workflow_version_id' => $version?->id,
             'triggered_by' => 'manual',
             'status' => 'pending',
+            'input_data' => $request->input('input', []),
         ]);
 
-        // TODO: dispatch DispatcherJob here once queue is configured
-        // DispatcherJob::dispatch($execution);
+        // Dispatch the execution job
+        DispatcherJob::dispatch($execution);
 
         return response()->json([
             'message' => 'Execution created.',

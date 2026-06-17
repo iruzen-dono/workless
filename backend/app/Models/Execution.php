@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Execution extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'workflow_id',
         'workflow_version_id',
@@ -17,6 +19,7 @@ class Execution extends Model
         'completed_at',
         'duration_ms',
         'error_message',
+        'input_data',
     ];
 
     protected function casts(): array
@@ -27,6 +30,7 @@ class Execution extends Model
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
             'duration_ms' => 'integer',
+            'input_data' => 'array',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];
