@@ -10,7 +10,8 @@ return [
     | JavaScript in a sandboxed VM environment.
     |
     */
-    'node_path' => env('WORKLESS_NODE_PATH', 'node'),
+    // Full absolute path to Node.js — avoids Windows PATH resolution issues
+    'node_path' => env('WORKLESS_NODE_PATH', 'C:\\Program Files\\nodejs\\node.exe'),
 
     /*
     |--------------------------------------------------------------------------

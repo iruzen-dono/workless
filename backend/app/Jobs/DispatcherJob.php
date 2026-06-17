@@ -44,6 +44,7 @@ class DispatcherJob implements ShouldQueue
         ]);
 
         try {
+            Log::debug('DispatcherJob: handle() entering try block', ['execution' => $this->executionId]);
             $workflow = $this->execution->workflow;
             if (! $workflow) {
                 throw new \RuntimeException('Workflow not found for execution.');
@@ -88,6 +89,20 @@ class DispatcherJob implements ShouldQueue
                 $this->log('warning', 'No starting steps found, using first step.');
             }
 
+            // Skip trigger-type steps (webhook — they don't execute, already triggered)
+            // Also skip error_handler steps (they only run when triggered by a failure)
+            $startingStepIds = array_values(array_filter($startingStepIds, function ($id) use ($steps) {
+                $step = $steps->get($id);
+                return $step && ! in_array($step->step_type, ['webhook', 'error_handler']);
+            }));
+            if (empty($startingStepIds)) {
+                // All start steps were triggers — follow their success connections
+                $startingStepIds = $connections->where('type', 'success')
+                    ->whereIn('source_step_id', $steps->where('step_type', 'webhook')->pluck('id'))
+                    ->pluck('target_step_id')
+                    ->toArray();
+            }
+
             // Main execution loop
             $executed = [];
             $stepResults = [];
@@ -103,8 +118,12 @@ class DispatcherJob implements ShouldQueue
                     continue;
                 }
 
-                // Check dependencies (only success connections)
-                $deps = $connections->where('target_step_id', $currentStepId)->where('type', 'success');
+                // Check dependencies (only success connections, skip trigger/ignored steps)
+                $deps = $connections->where('target_step_id', $currentStepId)->where('type', 'success')
+                    ->reject(function ($conn) use ($steps) {
+                        $source = $steps->get($conn->source_step_id);
+                        return $source && in_array($source->step_type, ['webhook', 'error_handler']);
+                    });
                 $allDepsExecuted = true;
                 foreach ($deps as $dep) {
                     if (! isset($executed[$dep->source_step_id])) {
@@ -192,8 +211,10 @@ class DispatcherJob implements ShouldQueue
 
                 // Merge output data
                 if (isset($result['data'])) {
-                    $inputData = array_merge($inputData, $result['data']);
-                } else {
+                    // Ensure data is an array for array_merge
+                    $stepData = is_array($result['data']) ? $result['data'] : ['value' => $result['data']];
+                    $inputData = array_merge($inputData, $stepData);
+                }else {
                     $inputData[$currentStep->id] = $result;
                 }
 
