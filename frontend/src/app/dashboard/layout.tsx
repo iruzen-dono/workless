@@ -13,6 +13,7 @@ import {
   ChevronDown,
   Clock,
   Activity,
+  UserCheck,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -20,6 +21,7 @@ const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
   { href: "/dashboard/workflows", label: "Workflows", icon: Workflow },
   { href: "/dashboard/executions", label: "Exécutions", icon: PlayCircle },
+  { href: "/dashboard/approvals", label: "Approvals", icon: UserCheck },
   { href: "/dashboard/schedules", label: "Schedules", icon: Clock },
   { href: "/dashboard/integrations", label: "Intégrations", icon: Cable },
   { href: "/dashboard/queue", label: "Queue", icon: Activity },

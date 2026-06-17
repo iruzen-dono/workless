@@ -192,3 +192,44 @@ export const queueApi = {
       method: 'POST',
     }),
 };
+
+// --- Approvals ---
+export interface Approval {
+  id: number;
+  workflow_id: number;
+  workflow_name?: string;
+  step_id: number;
+  step_label?: string;
+  message?: string;
+  input_snapshot?: Record<string, any>;
+  status: 'pending' | 'approved' | 'rejected';
+  requested_at: string;
+  responded_at?: string;
+  responded_by?: string;
+  decision?: 'approved' | 'rejected';
+  note?: string;
+}
+
+export interface PaginatedApprovals {
+  data: Approval[];
+  meta: {
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+  };
+}
+
+export const approvalsApi = {
+  list: (page = 1) =>
+    request<PaginatedApprovals>(`/approvals?page=${page}`),
+
+  pending: () =>
+    request<{ data: Approval[] }>('/approvals/pending'),
+
+  respond: (id: number, decision: 'approved' | 'rejected', note?: string) =>
+    request<{ data: Approval }>(`/approvals/${id}/respond`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, note }),
+    }),
+};

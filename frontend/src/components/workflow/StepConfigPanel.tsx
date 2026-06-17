@@ -107,6 +107,21 @@ function getFieldsForStepType(stepType: string): ConfigField[] {
           { label: "Continue", value: "continue" },
         ]},
       ];
+    case "approval":
+      return [
+        { key: "label", label: "Label", type: "text", placeholder: "Approval step" },
+        { key: "message", label: "Message", type: "textarea", placeholder: "Message to reviewer..." },
+        {
+          key: "approval_options",
+          label: "Approval Options",
+          type: "select",
+          options: [
+            { label: "Single approver", value: "single" },
+            { label: "Any approver", value: "any" },
+            { label: "All approvers", value: "all" },
+          ],
+        },
+      ];
     default:
       return [
         { key: "label", label: "Label", type: "text", placeholder: "Step label" },
@@ -283,16 +298,18 @@ export default function StepConfigPanel({
                 }}
               />
             )}
-            {stepType === "code" && (
-              <div className="rounded-md border border-cyan-900/50 bg-cyan-950/20 p-3">
-                <p className="text-xs text-cyan-400 leading-relaxed">
-                  The code runs in a sandboxed Node.js VM. Use <code className="text-cyan-300 font-mono text-[11px] bg-cyan-950/50 px-1 rounded">return</code> to output data. Input is available in <code className="text-cyan-300 font-mono text-[11px] bg-cyan-950/50 px-1 rounded">input</code> object.
-                </p>
-              </div>
-            )}
+          </div>
+        ))}
+        {stepType === "code" && (
+          <div className="rounded-md border border-cyan-900/50 bg-cyan-950/20 p-3">
+            <p className="text-xs text-cyan-400 leading-relaxed">
+              The code runs in a sandboxed Node.js VM. Use <code className="text-cyan-300 font-mono text-[11px] bg-cyan-950/50 px-1 rounded">return</code> to output data. Input is available in <code className="text-cyan-300 font-mono text-[11px] bg-cyan-950/50 px-1 rounded">input</code> object.
+            </p>
+          </div>
+        )}
 
-            {/* Webhook Info */}
-            {stepType === "webhook" && (
+        {/* Webhook Info */}
+        {stepType === "webhook" && (
               <div className="border-t border-zinc-800 pt-4 mt-2 space-y-3">
                 <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
                   Webhook
@@ -430,9 +447,7 @@ export default function StepConfigPanel({
                 )}
               </div>
             )}
-            </div>
-        )}
-      </div>
+          </div>
 
       {/* Actions */}
       <div className="border-t border-zinc-800 p-4 space-y-2">
