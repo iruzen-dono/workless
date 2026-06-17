@@ -73,10 +73,15 @@ function getFieldsForStepType(stepType: string): ConfigField[] {
         { key: "body", label: "Body", type: "textarea", placeholder: "Email content..." },
       ];
     case "transform":
-    case "code":
       return [
         { key: "label", label: "Label", type: "text", placeholder: "Transform" },
         { key: "code", label: "Code", type: "textarea", placeholder: "// Transformation code" },
+      ];
+    case "code":
+      return [
+        { key: "label", label: "Label", type: "text", placeholder: "Code" },
+        { key: "code", label: "Code", type: "textarea", placeholder: "// Write your JavaScript code here" },
+        { key: "timeout", label: "Timeout (seconds)", type: "number", placeholder: "5" },
       ];
     case "error_handler":
       return [
@@ -197,7 +202,10 @@ export default function StepConfigPanel({
               </div>
             ) : field.type === "textarea" ? (
               <textarea
-                className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-violet-500 min-h-[80px] resize-y"
+                className={`w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-violet-500 resize-y ${
+                  field.key === "code" ? "font-mono min-h-[300px]" : "min-h-[80px]"
+                }`}
+                rows={field.key === "code" ? 15 : undefined}
                 placeholder={field.placeholder}
                 value={(config[field.key] as string) || ""}
                 onChange={(e) => updateConfig(field.key, e.target.value)}
@@ -233,6 +241,13 @@ export default function StepConfigPanel({
             )}
           </div>
         ))}
+        {stepType === "code" && (
+          <div className="rounded-md border border-cyan-900/50 bg-cyan-950/20 p-3">
+            <p className="text-xs text-cyan-400 leading-relaxed">
+              The code runs in a sandboxed Node.js VM. Use <code className="text-cyan-300 font-mono text-[11px] bg-cyan-950/50 px-1 rounded">return</code> to output data. Input is available in <code className="text-cyan-300 font-mono text-[11px] bg-cyan-950/50 px-1 rounded">input</code> object.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Actions */}

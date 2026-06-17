@@ -181,7 +181,7 @@ class WorkflowController extends Controller
             'workflow_version_id' => $version?->id,
             'triggered_by' => 'manual',
             'status' => 'pending',
-            'input_data' => $request->input('input', []),
+            'input_data' => $request->input('input_data', $request->input('input', [])),
         ]);
 
         // Dispatch the execution job

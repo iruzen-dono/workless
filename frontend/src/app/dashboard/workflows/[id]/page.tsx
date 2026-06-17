@@ -26,6 +26,7 @@ import {
   Globe,
   Mail,
   Code,
+  Code2,
   ShieldAlert,
   Undo2,
   Redo2,
@@ -55,6 +56,7 @@ import HttpRequestNode from "@/components/workflow/nodes/HttpRequestNode";
 import EmailNode from "@/components/workflow/nodes/EmailNode";
 import TransformNode from "@/components/workflow/nodes/TransformNode";
 import ErrorHandlerNode from "@/components/workflow/nodes/ErrorHandlerNode";
+import CodeNode from "@/components/workflow/nodes/CodeNode";
 
 const nodeTypes = {
   trigger: TriggerNode,
@@ -65,6 +67,7 @@ const nodeTypes = {
   email: EmailNode,
   transform: TransformNode,
   error_handler: ErrorHandlerNode,
+  code: CodeNode,
 };
 
 const edgeTypes = {
@@ -87,6 +90,7 @@ const paletteItems: PaletteItem[] = [
   { type: "email", label: "Email", category: "action", icon: <Mail className="h-3.5 w-3.5" /> },
   { type: "action", label: "Action", category: "action", icon: <Code className="h-3.5 w-3.5" /> },
   { type: "transform", label: "Transform", category: "action", icon: <Code className="h-3.5 w-3.5" /> },
+  { type: "code", label: "Code", category: "action", icon: <Code2 className="h-3.5 w-3.5" /> },
   { type: "error_handler", label: "Error Handler", category: "action", icon: <ShieldAlert className="h-3.5 w-3.5" /> },
 ];
 
@@ -196,7 +200,6 @@ export default function WorkflowBuilderPage() {
       const flowNodes: Node[] = stepsData.data.map((step) => ({
         id: String(step.id),
         type: step.step_type === "loop" ? "action"
-          : step.step_type === "code" ? "transform"
           : step.step_type,
         position: {
           x: step.position_x ?? 250,
@@ -927,6 +930,7 @@ export default function WorkflowBuilderPage() {
                     if (type === "http_request") return "#0ea5e9";
                     if (type === "email") return "#ec4899";
                     if (type === "transform") return "#06b6d4";
+                    if (type === "code") return "#14b8a6";
                     if (type === "error_handler") return "#f97316";
                     return "#8b5cf6";
                   }}

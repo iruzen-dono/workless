@@ -17,6 +17,7 @@ class StepRunnerService
             'email' => new EmailRunner(),
             'transform' => new TransformRunner(),
             'error_handler' => new ErrorHandlerRunner(),
+            'code' => new CodeRunner(),
         ];
     }
 
