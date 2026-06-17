@@ -2,22 +2,45 @@
 
 import { memo } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
-import { Zap } from "lucide-react";
+import { Zap, XCircle } from "lucide-react";
 
 type TriggerNodeData = {
   label?: string;
+  executionStatus?: string;
   [key: string]: unknown;
 };
 
 type TriggerNodeType = Node<TriggerNodeData, "trigger">;
 
 function TriggerNode({ data, selected }: NodeProps<TriggerNodeType>) {
+  const execStatus = data.executionStatus;
+
+  const getBorderColor = () => {
+    if (execStatus === "pending") return "#eab308";
+    if (execStatus === "running") return "#3b82f6";
+    if (execStatus === "completed") return "#22c55e";
+    if (execStatus === "failed") return "#ef4444";
+    return "#22c55e";
+  };
+
+  const getPulseClass = () => {
+    if (execStatus === "pending") return "animate-pulse";
+    if (execStatus === "running") return "animate-pulse";
+    return "";
+  };
+
+  const getSelectedShadow = () => {
+    if (selected) {
+      const color = getBorderColor();
+      return `shadow-[0_0_0_2px_${color}]`;
+    }
+    return "";
+  };
+
   return (
     <div
-      className={`relative px-5 py-3 rounded-2xl bg-zinc-800 text-white border-2 transition-shadow ${
-        selected ? "shadow-[0_0_0_2px_rgba(34,197,94,0.5)]" : ""
-      }`}
-      style={{ borderColor: "#22c55e" }}
+      className={`relative px-5 py-3 rounded-2xl bg-zinc-800 text-white border-2 transition-shadow ${getPulseClass()} ${getSelectedShadow()}`}
+      style={{ borderColor: getBorderColor() }}
     >
       <Handle
         type="target"
@@ -27,13 +50,23 @@ function TriggerNode({ data, selected }: NodeProps<TriggerNodeType>) {
       <div className="flex items-center gap-2">
         <div
           className="flex items-center justify-center w-7 h-7 rounded-full"
-          style={{ backgroundColor: "rgba(34,197,94,0.2)" }}
+          style={{ backgroundColor: execStatus === "failed" ? "rgba(239,68,68,0.2)" : "rgba(34,197,94,0.2)" }}
         >
-          <Zap className="h-4 w-4" style={{ color: "#22c55e" }} />
+          {execStatus === "failed" ? (
+            <XCircle className="h-4 w-4" style={{ color: "#ef4444" }} />
+          ) : (
+            <Zap className="h-4 w-4" style={{ color: getBorderColor() }} />
+          )}
         </div>
         <span className="text-sm font-medium text-zinc-100">
           {data.label || "Trigger"}
         </span>
+        {execStatus === "running" && (
+          <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
+        )}
+        {execStatus === "completed" && (
+          <span className="text-green-500 text-xs">✓</span>
+        )}
       </div>
       <Handle
         type="source"

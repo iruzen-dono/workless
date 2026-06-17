@@ -7,7 +7,7 @@ class TransformRunner implements StepRunnerInterface
     public function run(array $input, array $config): array
     {
         $operation = $config['operation'] ?? 'json_path';
-        $sourceField = $config['source_field'] ?? '';
+        $sourceField = $config['source_field'] ?? $config['field'] ?? '';
         $format = $config['format'] ?? '';
         $separator = $config['separator'] ?? ', ';
         $prefix = $config['prefix'] ?? '';

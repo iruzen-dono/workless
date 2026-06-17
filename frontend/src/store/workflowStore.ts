@@ -21,6 +21,20 @@ export type WorkflowMeta = {
   status: string;
 };
 
+type HistoryEntry = {
+  nodes: Node[];
+  edges: Edge[];
+};
+
+export type ExecutionStatus = "idle" | "pending" | "running" | "completed" | "failed";
+
+export interface StepExecutionStatus {
+  stepId: string | number;
+  status: ExecutionStatus;
+  output?: Record<string, unknown>;
+  error?: string;
+}
+
 export type WorkflowState = {
   nodes: Node[];
   edges: Edge[];
@@ -28,6 +42,15 @@ export type WorkflowState = {
   workflowMeta: WorkflowMeta | null;
   isDirty: boolean;
   isSaving: boolean;
+
+  // Undo/Redo
+  history: HistoryEntry[];
+  historyIndex: number;
+  maxHistory: number;
+
+  // Execution visualization
+  executionStatus: StepExecutionStatus[];
+  executionId: string | number | null;
 
   // Actions
   setNodes: (nodes: Node[]) => void;
@@ -48,6 +71,18 @@ export type WorkflowState = {
   setDirty: (dirty: boolean) => void;
   setSaving: (saving: boolean) => void;
   reset: () => void;
+
+  // Undo/Redo
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+
+  // Execution
+  setExecutionStatus: (status: StepExecutionStatus[]) => void;
+  setExecutionId: (id: string | number | null) => void;
+  updateStepExecutionStatus: (stepId: string | number, status: ExecutionStatus, output?: Record<string, unknown>, error?: string) => void;
+  clearExecutionStatus: () => void;
 };
 
 const typeToNodeType: Record<string, string> = {
@@ -90,6 +125,22 @@ function createDefaultConfig(stepType: string): Record<string, unknown> {
   }
 }
 
+function pushHistory(state: WorkflowState): Partial<WorkflowState> {
+  const entry: HistoryEntry = {
+    nodes: JSON.parse(JSON.stringify(state.nodes)),
+    edges: JSON.parse(JSON.stringify(state.edges)),
+  };
+  const newHistory = state.history.slice(0, state.historyIndex + 1);
+  newHistory.push(entry);
+  if (newHistory.length > state.maxHistory) {
+    newHistory.shift();
+  }
+  return {
+    history: newHistory,
+    historyIndex: newHistory.length - 1,
+  };
+}
+
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   nodes: [],
   edges: [],
@@ -98,19 +149,35 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   isDirty: false,
   isSaving: false,
 
-  setNodes: (nodes) => set({ nodes }),
-  setEdges: (edges) => set({ edges }),
+  // Undo/Redo
+  history: [],
+  historyIndex: -1,
+  maxHistory: 50,
+
+  // Execution
+  executionStatus: [],
+  executionId: null,
+
+  setNodes: (nodes) => set({ nodes, ...pushHistory(get()) }),
+
+  setEdges: (edges) => set({ edges, ...pushHistory(get()) }),
 
   onNodesChange: (changes) => {
-    set({ nodes: applyNodeChanges(changes, get().nodes) });
+    const newNodes = applyNodeChanges(changes, get().nodes);
+    set({ nodes: newNodes, ...pushHistory(get()) });
   },
 
   onEdgesChange: (changes) => {
-    set({ edges: applyEdgeChanges(changes, get().edges) });
+    const newEdges = applyEdgeChanges(changes, get().edges);
+    set({ edges: newEdges, ...pushHistory(get()) });
   },
 
   onConnect: (connection) => {
-    set({ edges: addEdge(connection, get().edges), isDirty: true });
+    set({
+      edges: addEdge(connection, get().edges),
+      isDirty: true,
+      ...pushHistory(get()),
+    });
   },
 
   addNode: (type, position, label) => {
@@ -124,9 +191,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         label: label || type.charAt(0).toUpperCase() + type.slice(1).replace("_", " "),
         stepType: type,
         config: createDefaultConfig(type),
+        executionStatus: undefined,
       },
     };
-    set({ nodes: [...get().nodes, newNode], isDirty: true });
+    set({
+      nodes: [...get().nodes, newNode],
+      isDirty: true,
+      ...pushHistory(get()),
+    });
     return newNode;
   },
 
@@ -136,6 +208,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       edges: get().edges.filter((e) => e.source !== id && e.target !== id),
       selectedNode: get().selectedNode?.id === id ? null : get().selectedNode,
       isDirty: true,
+      ...pushHistory(get()),
     });
   },
 
@@ -147,6 +220,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           : n
       ),
       isDirty: true,
+      ...pushHistory(get()),
     });
   },
 
@@ -156,6 +230,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         n.id === id ? { ...n, data: { ...n.data, label } } : n
       ),
       isDirty: true,
+      ...pushHistory(get()),
     });
   },
 
@@ -163,8 +238,16 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   clearSelection: () => set({ selectedNode: null }),
 
   loadWorkflow: (meta) => set({ workflowMeta: meta }),
-  loadNodes: (nodes) => set({ nodes }),
-  loadEdges: (edges) => set({ edges }),
+  loadNodes: (nodes) => set({
+    nodes,
+    history: [{ nodes: JSON.parse(JSON.stringify(nodes)), edges: [] }],
+    historyIndex: 0,
+  }),
+  loadEdges: (edges) => set({
+    edges,
+    history: [{ nodes: JSON.parse(JSON.stringify(get().nodes)), edges: JSON.parse(JSON.stringify(edges)) }],
+    historyIndex: 0,
+  }),
   setWorkflowMeta: (meta) =>
     set({ workflowMeta: get().workflowMeta ? { ...get().workflowMeta!, ...meta } : null }),
   setDirty: (dirty) => set({ isDirty: dirty }),
@@ -178,5 +261,73 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       workflowMeta: null,
       isDirty: false,
       isSaving: false,
+      history: [],
+      historyIndex: -1,
+      executionStatus: [],
+      executionId: null,
+    }),
+
+  // Undo/Redo
+  undo: () => {
+    const { historyIndex, history } = get();
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1;
+      const entry = history[newIndex];
+      set({
+        nodes: JSON.parse(JSON.stringify(entry.nodes)),
+        edges: JSON.parse(JSON.stringify(entry.edges)),
+        historyIndex: newIndex,
+        isDirty: true,
+      });
+    }
+  },
+
+  redo: () => {
+    const { historyIndex, history } = get();
+    if (historyIndex < history.length - 1) {
+      const newIndex = historyIndex + 1;
+      const entry = history[newIndex];
+      set({
+        nodes: JSON.parse(JSON.stringify(entry.nodes)),
+        edges: JSON.parse(JSON.stringify(entry.edges)),
+        historyIndex: newIndex,
+        isDirty: true,
+      });
+    }
+  },
+
+  canUndo: () => get().historyIndex > 0,
+  canRedo: () => get().historyIndex < get().history.length - 1,
+
+  // Execution
+  setExecutionStatus: (status) => set({ executionStatus: status }),
+  setExecutionId: (id) => set({ executionId: id }),
+
+  updateStepExecutionStatus: (stepId, status, output, error) => {
+    set({
+      executionStatus: [
+        ...get().executionStatus.filter((s) => s.stepId !== stepId),
+        { stepId, status, output, error },
+      ],
+      // Also update the node's data so custom nodes can display the status
+      nodes: get().nodes.map((n) => {
+        const nid = typeof n.id === "number" ? n.id : n.id.replace("node_", "");
+        const match = String(nid) === String(stepId) || n.id === `node_${stepId}`;
+        if (match) {
+          return { ...n, data: { ...n.data, executionStatus: status as string } };
+        }
+        return n;
+      }),
+    });
+  },
+
+  clearExecutionStatus: () =>
+    set({
+      executionStatus: [],
+      executionId: null,
+      nodes: get().nodes.map((n) => ({
+        ...n,
+        data: { ...n.data, executionStatus: undefined },
+      })),
     }),
 }));

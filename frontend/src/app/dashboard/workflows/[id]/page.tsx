@@ -25,12 +25,17 @@ import {
   Globe,
   Mail,
   Code,
+  Undo2,
+  Redo2,
+  Copy,
+  ClipboardPaste,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { workflowsApi, stepsApi } from "@/lib/api";
+import { workflowsApi, stepsApi, executionsApi } from "@/lib/api";
 import { useWorkflowStore } from "@/store/workflowStore";
+import type { ExecutionStepResult } from "@/types";
 import StepConfigPanel from "@/components/workflow/StepConfigPanel";
 
 // Custom node imports
@@ -93,6 +98,10 @@ export default function WorkflowBuilderPage() {
     workflowMeta,
     isDirty,
     isSaving,
+    executionStatus,
+    executionId,
+    historyIndex,
+    history,
     onNodesChange,
     onEdgesChange,
     onConnect,
@@ -104,11 +113,23 @@ export default function WorkflowBuilderPage() {
     clearSelection,
     loadWorkflow,
     loadNodes,
+    loadEdges,
+    setWorkflowMeta,
     setDirty,
     setSaving,
+    setExecutionId,
+    updateStepExecutionStatus,
+    clearExecutionStatus,
+    undo,
+    redo,
   } = useWorkflowStore();
 
   const [showConfig, setShowConfig] = useState(false);
+  const [clipboard, setClipboard] = useState<Node | null>(null);
+
+  // Derived undo/redo state
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < history.length - 1;
 
   // Load workflow data
   const { data: workflowData, isLoading: workflowLoading } = useQuery({
@@ -120,6 +141,18 @@ export default function WorkflowBuilderPage() {
   const { data: stepsData } = useQuery({
     queryKey: ["steps", workflowId],
     queryFn: () => stepsApi.list(workflowId),
+    enabled: !!workflowId,
+  });
+
+  // Load connections
+  const { data: connectionsData } = useQuery({
+    queryKey: ["connections", workflowId],
+    queryFn: async () => {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"}/workflows/${workflowId}/connections`
+      );
+      return res.json();
+    },
     enabled: !!workflowId,
   });
 
@@ -157,6 +190,19 @@ export default function WorkflowBuilderPage() {
     }
   }, [stepsData]);
 
+  // Convert API connections to React Flow edges
+  useEffect(() => {
+    if (connectionsData?.data && connectionsData.data.length > 0) {
+      const flowEdges: Edge[] = connectionsData.data.map((conn: { id: number; source_step_id: number; target_step_id: number; source_port?: string | null }) => ({
+        id: String(conn.id),
+        source: String(conn.source_step_id),
+        target: String(conn.target_step_id),
+        sourceHandle: conn.source_port || undefined,
+      }));
+      loadEdges(flowEdges);
+    }
+  }, [connectionsData]);
+
   // Save workflow mutation
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -190,20 +236,69 @@ export default function WorkflowBuilderPage() {
   const executeMutation = useMutation({
     mutationFn: () => workflowsApi.execute(workflowId),
     onSuccess: (data) => {
-      toast.success("Workflow exécuté avec succès");
-      if (data.data?.id) {
-        toast.info(
-          <Link href={`/dashboard/executions/${data.data.id}`} className="underline">
-            Voir les logs d'exécution
-          </Link>,
-          { duration: 5000 }
-        );
+      clearExecutionStatus();
+      const execId = data.data?.id;
+      if (execId) {
+        setExecutionId(execId);
+        toast.success("Workflow en cours d'exécution...");
+      } else {
+        toast.success("Workflow exécuté avec succès");
       }
     },
     onError: (err: Error) => {
       toast.error("Erreur d'exécution: " + err.message);
     },
   });
+
+  // Poll execution status
+  useEffect(() => {
+    if (!executionId) return;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const response = await executionsApi.get(Number(executionId));
+        const exec = response.data as any;
+
+        // Update step results
+        if (exec.step_results) {
+          for (const result of exec.step_results) {
+            const status = result.status === "skipped" ? "completed" : result.status;
+            updateStepExecutionStatus(
+              result.step_id,
+              status as any,
+              result.output_data || undefined,
+              result.error_message || undefined
+            );
+          }
+        }
+
+        // Stop polling if execution is done
+        if (exec.status === "completed" || exec.status === "failed" || exec.status === "cancelled") {
+          setExecutionId(null);
+          toast.info(
+            exec.status === "completed"
+              ? "Exécution terminée avec succès"
+              : `Exécution ${exec.status}`
+          );
+          return;
+        }
+      } catch {
+        // Silently handle poll errors
+      }
+
+      if (!cancelled) {
+        setTimeout(poll, 2000);
+      }
+    };
+
+    poll();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [executionId]);
 
   // Drag & Drop handlers
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -278,6 +373,111 @@ export default function WorkflowBuilderPage() {
     updateNodeLabel(id, label);
   };
 
+  const handleUndo = () => {
+    undo();
+  };
+
+  const handleRedo = () => {
+    redo();
+  };
+
+  // Clipboard state
+  const handleCopyNode = () => {
+    if (selectedNode) {
+      setClipboard({ ...selectedNode });
+      toast.success("Step copié");
+    }
+  };
+
+  const handlePasteNode = () => {
+    if (!clipboard || !reactFlowInstance) return;
+    const newPos = {
+      x: clipboard.position.x + 50,
+      y: clipboard.position.y + 50,
+    };
+    const stepType = (clipboard.data?.stepType as string) || "action";
+    addNode(stepType, newPos, clipboard.data?.label as string);
+    toast.success("Step collé");
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger shortcuts when typing in input fields
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable
+      ) {
+        // Allow Escape and Ctrl+S even in inputs
+        if (!(e.key === "Escape" || (e.key === "s" && (e.ctrlKey || e.metaKey)))) {
+          return;
+        }
+      }
+
+      // Ctrl+Z / Cmd+Z → Undo
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      // Ctrl+Y / Cmd+Y or Ctrl+Shift+Z / Cmd+Shift+Z → Redo
+      if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      // Ctrl+S / Cmd+S → Save
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        handleSave();
+        return;
+      }
+
+      // Delete / Backspace → Delete selected node
+      if (e.key === "Delete" || e.key === "Backspace") {
+        // Backspace should not fire when input is focused (already handled above)
+        if (selectedNode) {
+          e.preventDefault();
+          handleDeleteNode(selectedNode.id);
+        }
+        return;
+      }
+
+      // Ctrl+C / Cmd+C → Copy selected node
+      if ((e.ctrlKey || e.metaKey) && e.key === "c") {
+        if (selectedNode) {
+          e.preventDefault();
+          handleCopyNode();
+        }
+        return;
+      }
+
+      // Ctrl+V / Cmd+V → Paste node
+      if ((e.ctrlKey || e.metaKey) && e.key === "v") {
+        if (clipboard) {
+          e.preventDefault();
+          handlePasteNode();
+        }
+        return;
+      }
+
+      // Escape → Close config panel and clear selection
+      if (e.key === "Escape") {
+        setShowConfig(false);
+        clearSelection();
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedNode, clipboard, handleUndo, handleRedo]);
+
   if (workflowLoading) {
     return (
       <div className="flex items-center justify-center h-full bg-zinc-950">
@@ -292,6 +492,12 @@ export default function WorkflowBuilderPage() {
     paused: "bg-amber-900/30 text-amber-400",
     archived: "bg-zinc-800 text-zinc-500",
   };
+
+  // Execution overlay data
+  const runningSteps = executionStatus.filter((s) => s.status === "running");
+  const completedSteps = executionStatus.filter((s) => s.status === "completed");
+  const failedSteps = executionStatus.filter((s) => s.status === "failed");
+  const isExecuting = !!executionId;
 
   return (
     <div className="flex flex-col h-full">
@@ -326,7 +532,66 @@ export default function WorkflowBuilderPage() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          {/* Undo/Redo buttons */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-zinc-500 hover:text-zinc-300 disabled:opacity-30"
+            onClick={handleUndo}
+            disabled={!canUndo}
+            title="Annuler (Ctrl+Z)"
+          >
+            <Undo2 className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-zinc-500 hover:text-zinc-300 disabled:opacity-30"
+            onClick={handleRedo}
+            disabled={!canRedo}
+            title="Refaire (Ctrl+Y)"
+          >
+            <Redo2 className="h-4 w-4" />
+          </Button>
+
+          <div className="w-px h-5 bg-zinc-700 mx-1" />
+
+          {/* Copy/Paste buttons */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-zinc-500 hover:text-zinc-300 disabled:opacity-30"
+            onClick={handleCopyNode}
+            disabled={!selectedNode}
+            title="Copier le step (Ctrl+C)"
+          >
+            <Copy className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-zinc-500 hover:text-zinc-300 disabled:opacity-30"
+            onClick={handlePasteNode}
+            disabled={!clipboard}
+            title="Coller le step (Ctrl+V)"
+          >
+            <ClipboardPaste className="h-4 w-4" />
+          </Button>
+
+          <div className="w-px h-5 bg-zinc-700 mx-1" />
+
+          {/* Execution indicator */}
+          {isExecuting && (
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-blue-900/30 border border-blue-800/50">
+              <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+              <span className="text-xs text-blue-400 font-medium">
+                Exécution en cours...
+              </span>
+            </div>
+          )}
+
+          {/* Save button */}
           <Button
             variant="outline"
             size="sm"
@@ -337,20 +602,22 @@ export default function WorkflowBuilderPage() {
             <Save className="h-4 w-4 mr-1" />
             {isSaving ? "Sauvegarde..." : "Sauvegarder"}
           </Button>
+
+          {/* Execute button */}
           <Button
             size="sm"
             className="bg-emerald-600 hover:bg-emerald-500 text-white"
             onClick={handleExecute}
-            disabled={executeMutation.isPending}
+            disabled={executeMutation.isPending || isExecuting}
           >
             <Play className="h-4 w-4 mr-1" />
-            {executeMutation.isPending ? "Exécution..." : "Exécuter"}
+            {executeMutation.isPending || isExecuting ? "Exécution..." : "Exécuter"}
           </Button>
         </div>
       </div>
 
       {/* Main area */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
         {/* Step palette sidebar */}
         <aside className="w-56 border-r border-zinc-800 bg-zinc-900 p-3 space-y-2 overflow-y-auto shrink-0">
           <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">
@@ -418,6 +685,8 @@ export default function WorkflowBuilderPage() {
               fitView
               colorMode="dark"
               deleteKeyCode={["Backspace", "Delete"]}
+              snapToGrid={true}
+              snapGrid={[15, 15]}
               defaultEdgeOptions={{
                 animated: true,
                 style: { stroke: "#52525b", strokeWidth: 2 },
@@ -455,6 +724,34 @@ export default function WorkflowBuilderPage() {
             onApply={handleApplyConfig}
             onLabelChange={handleLabelChange}
           />
+        )}
+
+        {/* Execution overlay */}
+        {isExecuting && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
+            <div className="bg-zinc-900/95 border border-zinc-700 rounded-lg shadow-xl px-4 py-3 min-w-[280px] backdrop-blur-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                <span className="text-sm font-medium text-zinc-200">
+                  Exécution en cours...
+                </span>
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-zinc-500">Steps complétés</span>
+                  <span className="text-green-400">{completedSteps.length}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-zinc-500">En cours</span>
+                  <span className="text-blue-400">{runningSteps.length}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-zinc-500">Échecs</span>
+                  <span className="text-red-400">{failedSteps.length}</span>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
