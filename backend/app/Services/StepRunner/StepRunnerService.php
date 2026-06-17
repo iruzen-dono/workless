@@ -16,6 +16,7 @@ class StepRunnerService
             'delay' => new DelayRunner(),
             'email' => new EmailRunner(),
             'transform' => new TransformRunner(),
+            'error_handler' => new ErrorHandlerRunner(),
         ];
     }
 

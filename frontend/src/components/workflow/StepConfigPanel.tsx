@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Trash2, Save, ChevronDown } from "lucide-react";
+import { X, Trash2, Save, ChevronDown, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Node } from "@xyflow/react";
@@ -78,6 +78,26 @@ function getFieldsForStepType(stepType: string): ConfigField[] {
         { key: "label", label: "Label", type: "text", placeholder: "Transform" },
         { key: "code", label: "Code", type: "textarea", placeholder: "// Transformation code" },
       ];
+    case "error_handler":
+      return [
+        { key: "label", label: "Label", type: "text", placeholder: "Error Handler" },
+        {
+          key: "error_type",
+          label: "Error Type",
+          type: "select",
+          options: [
+            { label: "Any Error", value: "any" },
+            { label: "HTTP Error", value: "http_error" },
+            { label: "Timeout", value: "timeout" },
+            { label: "Custom", value: "custom" },
+          ],
+        },
+        { key: "fallback_action", label: "Fallback Action", type: "select", options: [
+          { label: "Retry", value: "retry" },
+          { label: "Abort", value: "abort" },
+          { label: "Continue", value: "continue" },
+        ]},
+      ];
     default:
       return [
         { key: "label", label: "Label", type: "text", placeholder: "Step label" },
@@ -137,7 +157,10 @@ export default function StepConfigPanel({
           <h3 className="text-sm font-semibold text-zinc-100 truncate">
             Configurer {label || typeDisplayName}
           </h3>
-          <p className="text-xs text-zinc-500 truncate">{typeDisplayName}</p>
+          <p className="text-xs text-zinc-500 truncate flex items-center gap-1">
+            {stepType === "error_handler" && <ShieldAlert className="h-3 w-3 text-orange-400" />}
+            {typeDisplayName}
+          </p>
         </div>
         <Button
           variant="ghost"

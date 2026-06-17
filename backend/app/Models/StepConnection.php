@@ -11,6 +11,7 @@ class StepConnection extends Model
         'workflow_id',
         'source_step_id',
         'target_step_id',
+        'type',
         'source_port',
         'target_port',
         'condition_expression',

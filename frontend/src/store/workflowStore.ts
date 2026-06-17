@@ -174,7 +174,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   onConnect: (connection) => {
     set({
-      edges: addEdge(connection, get().edges),
+      edges: addEdge({ ...connection, type: "dataflow" }, get().edges),
       isDirty: true,
       ...pushHistory(get()),
     });
@@ -243,11 +243,21 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     history: [{ nodes: JSON.parse(JSON.stringify(nodes)), edges: [] }],
     historyIndex: 0,
   }),
-  loadEdges: (edges) => set({
-    edges,
-    history: [{ nodes: JSON.parse(JSON.stringify(get().nodes)), edges: JSON.parse(JSON.stringify(edges)) }],
-    historyIndex: 0,
-  }),
+  loadEdges: (edges) =>
+    set({
+      edges: edges.map((e) => ({ ...e, type: e.type || "dataflow" })),
+      history: [
+        {
+          nodes: JSON.parse(JSON.stringify(get().nodes)),
+          edges: JSON.parse(
+            JSON.stringify(
+              edges.map((e) => ({ ...e, type: e.type || "dataflow" }))
+            )
+          ),
+        },
+      ],
+      historyIndex: 0,
+    }),
   setWorkflowMeta: (meta) =>
     set({ workflowMeta: get().workflowMeta ? { ...get().workflowMeta!, ...meta } : null }),
   setDirty: (dirty) => set({ isDirty: dirty }),

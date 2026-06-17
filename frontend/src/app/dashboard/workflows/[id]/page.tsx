@@ -26,6 +26,7 @@ import {
   Globe,
   Mail,
   Code,
+  ShieldAlert,
   Undo2,
   Redo2,
   Copy,
@@ -43,6 +44,7 @@ import { workflowsApi, stepsApi, executionsApi } from "@/lib/api";
 import { useWorkflowStore } from "@/store/workflowStore";
 import type { ExecutionStepResult } from "@/types";
 import StepConfigPanel from "@/components/workflow/StepConfigPanel";
+import DataFlowEdge from "@/components/workflow/edges/DataFlowEdge";
 
 // Custom node imports
 import TriggerNode from "@/components/workflow/nodes/TriggerNode";
@@ -52,6 +54,7 @@ import DelayNode from "@/components/workflow/nodes/DelayNode";
 import HttpRequestNode from "@/components/workflow/nodes/HttpRequestNode";
 import EmailNode from "@/components/workflow/nodes/EmailNode";
 import TransformNode from "@/components/workflow/nodes/TransformNode";
+import ErrorHandlerNode from "@/components/workflow/nodes/ErrorHandlerNode";
 
 const nodeTypes = {
   trigger: TriggerNode,
@@ -61,6 +64,11 @@ const nodeTypes = {
   http_request: HttpRequestNode,
   email: EmailNode,
   transform: TransformNode,
+  error_handler: ErrorHandlerNode,
+};
+
+const edgeTypes = {
+  dataflow: DataFlowEdge,
 };
 
 interface PaletteItem {
@@ -79,6 +87,7 @@ const paletteItems: PaletteItem[] = [
   { type: "email", label: "Email", category: "action", icon: <Mail className="h-3.5 w-3.5" /> },
   { type: "action", label: "Action", category: "action", icon: <Code className="h-3.5 w-3.5" /> },
   { type: "transform", label: "Transform", category: "action", icon: <Code className="h-3.5 w-3.5" /> },
+  { type: "error_handler", label: "Error Handler", category: "action", icon: <ShieldAlert className="h-3.5 w-3.5" /> },
 ];
 
 const categoryColors: Record<string, string> = {
@@ -133,6 +142,12 @@ export default function WorkflowBuilderPage() {
   const [showConfig, setShowConfig] = useState(false);
   const [clipboard, setClipboard] = useState<Node | null>(null);
   const [showMinimap, setShowMinimap] = useState(true);
+  const [edgeDataDialog, setEdgeDataDialog] = useState<{
+    open: boolean;
+    data?: Record<string, unknown>;
+    sourceLabel?: string;
+    targetLabel?: string;
+  }>({ open: false });
 
   // Derived undo/redo state
   const canUndo = historyIndex > 0;
@@ -209,6 +224,39 @@ export default function WorkflowBuilderPage() {
       loadEdges(flowEdges);
     }
   }, [connectionsData]);
+
+  // Listen for edge context menu events
+  useEffect(() => {
+    const handleDeleteEdge = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const edgeId = detail.edgeId;
+      const { edges: currentEdges } = useWorkflowStore.getState();
+      const newEdges = currentEdges.filter((edg) => edg.id !== edgeId);
+      useWorkflowStore.getState().setEdges(newEdges);
+      toast.success("Connection supprimée");
+    };
+
+    const handleViewEdgeData = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const edgeData = detail.data;
+      setEdgeDataDialog({
+        open: true,
+        data: edgeData?.lastOutput || undefined,
+        sourceLabel: edgeData?.sourceLabel || detail.edgeId,
+        targetLabel: edgeData?.targetLabel || undefined,
+      });
+    };
+
+    document.addEventListener("workflow:delete-edge", handleDeleteEdge);
+    document.addEventListener("workflow:view-edge-data", handleViewEdgeData);
+    return () => {
+      document.removeEventListener("workflow:delete-edge", handleDeleteEdge);
+      document.removeEventListener(
+        "workflow:view-edge-data",
+        handleViewEdgeData
+      );
+    };
+  }, []);
 
   // Save workflow mutation
   const saveMutation = useMutation({
@@ -855,6 +903,7 @@ export default function WorkflowBuilderPage() {
               onNodeClick={onNodeClick}
               onPaneClick={onPaneClick}
               nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
               fitView
               colorMode="dark"
               deleteKeyCode={["Backspace", "Delete"]}
@@ -878,6 +927,7 @@ export default function WorkflowBuilderPage() {
                     if (type === "http_request") return "#0ea5e9";
                     if (type === "email") return "#ec4899";
                     if (type === "transform") return "#06b6d4";
+                    if (type === "error_handler") return "#f97316";
                     return "#8b5cf6";
                   }}
                   maskColor="rgba(9,9,11,0.7)"
@@ -924,6 +974,56 @@ export default function WorkflowBuilderPage() {
                   <span className="text-zinc-500">Échecs</span>
                   <span className="text-red-400">{failedSteps.length}</span>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edge data viewer dialog */}
+        {edgeDataDialog.open && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            onClick={() => setEdgeDataDialog({ open: false })}
+          >
+            <div
+              className="bg-white rounded-xl shadow-2xl border border-zinc-200 w-full max-w-lg mx-4 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200">
+                <h3 className="text-base font-semibold text-zinc-800">
+                  Edge Data
+                </h3>
+                <button
+                  onClick={() => setEdgeDataDialog({ open: false })}
+                  className="text-zinc-400 hover:text-zinc-600 text-lg leading-none"
+                >
+                  &times;
+                </button>
+              </div>
+              <div className="px-5 py-4 space-y-3">
+                {edgeDataDialog.sourceLabel && (
+                  <div className="text-sm text-zinc-500">
+                    <span className="font-medium text-zinc-700">Connection: </span>
+                    {edgeDataDialog.sourceLabel}
+                    {edgeDataDialog.targetLabel && <> → {edgeDataDialog.targetLabel}</>}
+                  </div>
+                )}
+                <div className="text-sm font-medium text-zinc-700">
+                  Last Output Data
+                </div>
+                <pre className="bg-zinc-50 border border-zinc-200 rounded-lg p-3 text-xs text-zinc-600 font-mono overflow-auto max-h-60 whitespace-pre-wrap">
+                  {edgeDataDialog.data
+                    ? JSON.stringify(edgeDataDialog.data, null, 2)
+                    : "No data available"}
+                </pre>
+              </div>
+              <div className="px-5 py-3 border-t border-zinc-200 flex justify-end">
+                <button
+                  onClick={() => setEdgeDataDialog({ open: false })}
+                  className="px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-colors"
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>

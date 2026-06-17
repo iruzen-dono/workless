@@ -22,17 +22,11 @@ class DispatcherJob implements ShouldQueue
     public int $executionId;
     private ?Execution $execution = null;
 
-    /**
-     * Create a new job instance.
-     */
     public function __construct(Execution $execution)
     {
         $this->executionId = $execution->id;
     }
 
-    /**
-     * Execute the job.
-     */
     public function handle(StepRunnerService $stepRunnerService): void
     {
         $this->execution = Execution::find($this->executionId);
@@ -42,7 +36,6 @@ class DispatcherJob implements ShouldQueue
             return;
         }
 
-        // Mark execution as running
         $this->execution->update([
             'status' => 'running',
             'started_at' => now(),
@@ -50,12 +43,10 @@ class DispatcherJob implements ShouldQueue
 
         try {
             $workflow = $this->execution->workflow;
-
             if (! $workflow) {
                 throw new \RuntimeException('Workflow not found for execution.');
             }
 
-            // Load steps and connections
             $steps = $workflow->steps()->get()->keyBy('id');
             $connections = $workflow->stepConnections()->get();
 
@@ -65,28 +56,24 @@ class DispatcherJob implements ShouldQueue
                 return;
             }
 
-            // Build DAG: compute in-degree for each step
+            // Index connections by type for fast lookup
+            $successConnections = $connections->where('type', 'success')->groupBy('source_step_id');
+            $errorConnections = $connections->where('type', 'error')->groupBy('source_step_id');
+
+            // Build DAG (only forward edges for in-degree)
             $inDegree = [];
             foreach ($steps as $stepId => $step) {
                 $inDegree[$stepId] = 0;
             }
-
-            // Track outgoing connections per step
-            $outgoingConnections = [];
-            foreach ($connections as $connection) {
-                $sourceId = $connection->source_step_id;
-                $targetId = $connection->target_step_id;
-
-                if ($steps->has($targetId)) {
-                    $inDegree[$targetId] = ($inDegree[$targetId] ?? 0) + 1;
-                }
-
-                if ($steps->has($sourceId)) {
-                    $outgoingConnections[$sourceId][] = $connection;
+            foreach ($successConnections as $sourceId => $conns) {
+                foreach ($conns as $conn) {
+                    if ($steps->has($conn->target_step_id)) {
+                        $inDegree[$conn->target_step_id] = ($inDegree[$conn->target_step_id] ?? 0) + 1;
+                    }
                 }
             }
 
-            // Find starting steps (no incoming connections / triggers)
+            // Starting steps: no incoming success connections
             $startingStepIds = [];
             foreach ($inDegree as $stepId => $degree) {
                 if ($degree === 0) {
@@ -95,16 +82,16 @@ class DispatcherJob implements ShouldQueue
             }
 
             if (empty($startingStepIds)) {
-                // Cyclic or no starting point — just pick the first step
                 $startingStepIds = [$steps->keys()->first()];
-                $this->log('warning', 'No starting steps found (all have incoming connections), using first step.');
+                $this->log('warning', 'No starting steps found, using first step.');
             }
 
-            // Execute steps in topological order (sequential execution)
+            // Main execution loop
             $executed = [];
             $stepResults = [];
             $queue = $startingStepIds;
             $inputData = $this->execution->input_data ?? [];
+            $hasErrors = false;
 
             while (! empty($queue)) {
                 $currentStepId = array_shift($queue);
@@ -114,54 +101,96 @@ class DispatcherJob implements ShouldQueue
                     continue;
                 }
 
-                // Check if all dependencies are satisfied
-                $dependencies = $connections->where('target_step_id', $currentStepId);
+                // Check dependencies (only success connections)
+                $deps = $connections->where('target_step_id', $currentStepId)->where('type', 'success');
                 $allDepsExecuted = true;
-                foreach ($dependencies as $dep) {
+                foreach ($deps as $dep) {
                     if (! isset($executed[$dep->source_step_id])) {
                         $allDepsExecuted = false;
                         break;
                     }
                 }
-
                 if (! $allDepsExecuted) {
-                    // Re-queue at the end
                     $queue[] = $currentStepId;
                     continue;
                 }
 
-                // Execute this step
+                // Execute the step
                 $result = $this->executeStep($currentStep, $stepRunnerService, $inputData);
                 $executed[$currentStepId] = true;
                 $stepResults[$currentStepId] = $result;
 
-                // If step failed and it's not a condition (condition "failure" is just false), mark execution failed
+                // Handle step failure
                 if (! $result['success'] && $currentStep->step_type !== 'condition') {
+                    // Check for error handlers
+                    $handlers = $errorConnections[$currentStepId] ?? collect();
+                    if ($handlers->isNotEmpty()) {
+                        $hasErrors = true;
+                        $errorPayload = [
+                            '_error' => [
+                                'message' => $result['error'] ?? 'Step failed',
+                                'step_label' => $currentStep->label,
+                                'step_type' => $currentStep->step_type,
+                                'step_id' => $currentStep->id,
+                            ],
+                        ];
+
+                        // Run each error handler
+                        foreach ($handlers as $errorConn) {
+                            $handlerStep = $steps->get($errorConn->target_step_id);
+                            if ($handlerStep && ! isset($executed[$handlerStep->id])) {
+                                $this->log('info', "Routing error from '{$currentStep->label}' to error handler '{$handlerStep->label}'");
+                                $handlerResult = $this->executeStep($handlerStep, $stepRunnerService, array_merge($inputData, $errorPayload));
+                                $executed[$handlerStep->id] = true;
+                                $stepResults[$handlerStep->id] = $handlerResult;
+                                // Pass handler output as input
+                                if (isset($handlerResult['data'])) {
+                                    $inputData = array_merge($inputData, $handlerResult['data']);
+                                } else {
+                                    $inputData[$handlerStep->id] = $handlerResult;
+                                }
+                            }
+                        }
+
+                        // After error handled, continue downstream of error handler if connected
+                        foreach ($handlers as $errorConn) {
+                            $handlerNext = $successConnections[$errorConn->target_step_id] ?? collect();
+                            foreach ($handlerNext as $nextConn) {
+                                $nextId = $nextConn->target_step_id;
+                                if (! isset($executed[$nextId]) && $steps->has($nextId)) {
+                                    $queue[] = $nextId;
+                                }
+                            }
+                        }
+
+                        continue; // Don't process normal next steps for failed step
+                    }
+
+                    // No error handler — throw to fail the execution
                     throw new \RuntimeException(
                         "Step '{$currentStep->label}' (type: {$currentStep->step_type}) failed: " . ($result['error'] ?? 'Unknown error')
                     );
                 }
 
-                // Pass output as input to next steps
+                // Merge output data
                 if (isset($result['data'])) {
                     $inputData = array_merge($inputData, $result['data']);
                 } else {
                     $inputData[$currentStep->id] = $result;
                 }
 
-                // Queue next steps
-                $nextConnections = $outgoingConnections[$currentStepId] ?? [];
-                foreach ($nextConnections as $connection) {
-                    $targetId = $connection->target_step_id;
+                // Queue next steps via success connections
+                $nextConns = $successConnections[$currentStepId] ?? collect();
+                foreach ($nextConns as $conn) {
+                    $targetId = $conn->target_step_id;
                     if (! isset($executed[$targetId]) && $steps->has($targetId)) {
-                        // Check condition expression if present
-                        if (! empty($connection->condition_expression)) {
+                        if (! empty($conn->condition_expression)) {
                             $conditionMet = $this->evaluateCondition(
-                                $connection->condition_expression,
+                                $conn->condition_expression,
                                 $stepResults[$currentStepId] ?? []
                             );
                             if (! $conditionMet) {
-                                $this->log('info', "Skipping step {$targetId} due to condition on connection {$connection->id}.");
+                                $this->log('info', "Skipping step {$targetId} due to condition.");
                                 continue;
                             }
                         }
@@ -170,27 +199,17 @@ class DispatcherJob implements ShouldQueue
                 }
             }
 
-            // Check if all steps completed
-            $failedSteps = $steps->filter(fn ($s) => isset($stepResults[$s->id]) && ! $stepResults[$s->id]['success']);
-            if ($failedSteps->isNotEmpty()) {
-                throw new \RuntimeException('Some steps failed during execution.');
-            }
-
-            $this->completeExecution('completed');
+            $this->completeExecution($hasErrors ? 'completed_with_errors' : 'completed');
         } catch (\Exception $e) {
             $this->log('error', 'Execution failed: ' . $e->getMessage());
             $this->completeExecution('failed', $e->getMessage());
         }
     }
 
-    /**
-     * Execute a single step and record its result.
-     */
     private function executeStep(Step $step, StepRunnerService $runnerService, array $inputData): array
     {
         $this->log('info', "Starting step: {$step->label} ({$step->step_type})", ['step_id' => $step->id]);
 
-        // Create or update ExecutionStepResult
         $stepResult = ExecutionStepResult::updateOrCreate(
             [
                 'execution_id' => $this->execution->id,
@@ -237,12 +256,8 @@ class DispatcherJob implements ShouldQueue
         }
     }
 
-    /**
-     * Evaluate a condition expression from a connection.
-     */
     private function evaluateCondition(array $condition, array $stepOutput): bool
     {
-        // Default: if no condition, always pass
         if (empty($condition)) {
             return true;
         }
@@ -266,9 +281,6 @@ class DispatcherJob implements ShouldQueue
         };
     }
 
-    /**
-     * Log a message for this execution.
-     */
     private function log(string $level, string $message, array $data = []): void
     {
         try {
@@ -280,14 +292,10 @@ class DispatcherJob implements ShouldQueue
                 'data' => $data,
             ]);
         } catch (\Exception $e) {
-            // Don't let logging failure crash the execution
             Log::warning('Failed to write execution log: ' . $e->getMessage());
         }
     }
 
-    /**
-     * Complete the execution with the given status.
-     */
     private function completeExecution(string $status, ?string $errorMessage = null): void
     {
         $this->execution->update([
