@@ -107,3 +107,13 @@ export interface ConnectionDefinition {
   to: string;
   condition?: Record<string, any>;
 }
+
+export interface Webhook {
+  id: number;
+  workflow_id: number;
+  step_id: number;
+  token: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}

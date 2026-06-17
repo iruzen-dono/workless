@@ -9,6 +9,7 @@ class WebhookTrigger extends Model
 {
     protected $fillable = [
         'workflow_id',
+        'step_id',
         'token',
         'is_active',
         'last_called_at',

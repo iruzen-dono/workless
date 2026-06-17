@@ -1,4 +1,4 @@
-import type { Workflow, Step, Execution, Integration } from '@/types';
+import type { Workflow, Step, Execution, Integration, Webhook } from '@/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
@@ -105,6 +105,33 @@ export const integrationsApi = {
     request<{ data: Integration }>(`/integrations/${type}/connect`, {
       method: 'POST',
       body: JSON.stringify(config),
+    }),
+};
+
+// --- Webhooks ---
+export const webhooksApi = {
+  list: (workflowId: number) =>
+    request<{ data: Webhook[] }>(`/workflows/${workflowId}/webhooks`),
+
+  create: (workflowId: number, stepId: number) =>
+    request<{ data: Webhook }>(`/workflows/${workflowId}/webhooks`, {
+      method: 'POST',
+      body: JSON.stringify({ step_id: stepId }),
+    }),
+
+  regenerate: (id: number) =>
+    request<{ data: Webhook }>(`/webhooks/${id}/regenerate`, {
+      method: 'POST',
+    }),
+
+  toggle: (id: number) =>
+    request<{ data: Webhook }>(`/webhooks/${id}/toggle`, {
+      method: 'POST',
+    }),
+
+  delete: (id: number) =>
+    request<{ message: string }>(`/webhooks/${id}`, {
+      method: 'DELETE',
     }),
 };
 

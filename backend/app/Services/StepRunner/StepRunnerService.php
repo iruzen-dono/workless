@@ -18,6 +18,7 @@ class StepRunnerService
             'transform' => new TransformRunner(),
             'error_handler' => new ErrorHandlerRunner(),
             'code' => new CodeRunner(),
+            'approval' => new ApprovalRunner(),
         ];
     }
 

@@ -37,6 +37,7 @@ import {
   Map,
   FileDown,
   LayoutGrid,
+  Link as LinkIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -57,9 +58,11 @@ import EmailNode from "@/components/workflow/nodes/EmailNode";
 import TransformNode from "@/components/workflow/nodes/TransformNode";
 import ErrorHandlerNode from "@/components/workflow/nodes/ErrorHandlerNode";
 import CodeNode from "@/components/workflow/nodes/CodeNode";
+import WebhookNode from "@/components/workflow/nodes/WebhookNode";
 
 const nodeTypes = {
   trigger: TriggerNode,
+  webhook: WebhookNode,
   action: ActionNode,
   condition: ConditionNode,
   delay: DelayNode,
@@ -82,7 +85,8 @@ interface PaletteItem {
 }
 
 const paletteItems: PaletteItem[] = [
-  { type: "trigger", label: "Webhook", category: "trigger", icon: <Zap className="h-3.5 w-3.5" /> },
+  { type: "trigger", label: "Webhook (Trigger)", category: "trigger", icon: <Zap className="h-3.5 w-3.5" /> },
+  { type: "webhook", label: "Webhook", category: "trigger", icon: <LinkIcon className="h-3.5 w-3.5" /> },
   { type: "schedule", label: "Schedule", category: "trigger", icon: <Clock className="h-3.5 w-3.5" /> },
   { type: "http_request", label: "HTTP Request", category: "action", icon: <Globe className="h-3.5 w-3.5" /> },
   { type: "condition", label: "Condition", category: "action", icon: <GitBranch className="h-3.5 w-3.5" /> },
@@ -925,6 +929,7 @@ export default function WorkflowBuilderPage() {
                   nodeColor={(n) => {
                     const type = n.type;
                     if (type === "trigger") return "#22c55e";
+                    if (type === "webhook") return "#8b5cf6";
                     if (type === "condition") return "#f59e0b";
                     if (type === "delay") return "#3b82f6";
                     if (type === "http_request") return "#0ea5e9";

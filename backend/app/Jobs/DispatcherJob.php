@@ -7,6 +7,7 @@ use App\Models\ExecutionLog;
 use App\Models\ExecutionStepResult;
 use App\Models\Step;
 use App\Models\StepConnection;
+use App\Models\ApprovalRequest;
 use App\Services\StepRunner\StepRunnerService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -120,6 +121,22 @@ class DispatcherJob implements ShouldQueue
                 $result = $this->executeStep($currentStep, $stepRunnerService, $inputData);
                 $executed[$currentStepId] = true;
                 $stepResults[$currentStepId] = $result;
+
+                // Handle pending approval — pause execution
+                if (! empty($result['approval_required'])) {
+                    $this->log('info', "Step '{$currentStep->label}' requires approval — pausing execution.");
+
+                    ApprovalRequest::create([
+                        'execution_id' => $this->execution->id,
+                        'step_id' => $currentStep->id,
+                        'status' => 'pending',
+                        'message' => $result['approval_message'] ?? 'Approval required',
+                        'input_snapshot' => $inputData,
+                    ]);
+
+                    $this->completeExecution('paused');
+                    return;
+                }
 
                 // Handle step failure
                 if (! $result['success'] && $currentStep->step_type !== 'condition') {

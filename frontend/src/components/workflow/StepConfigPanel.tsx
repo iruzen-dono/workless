@@ -1,11 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Trash2, Save, ChevronDown, ShieldAlert } from "lucide-react";
+import { X, Trash2, Save, ChevronDown, ShieldAlert, Copy, RotateCcw, Power, PowerOff, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Node } from "@xyflow/react";
 import { useWorkflowStore } from "@/store/workflowStore";
+import { useParams } from "next/navigation";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { webhooksApi } from "@/lib/api";
+import { toast } from "sonner";
 
 interface ConfigField {
   key: string;
@@ -128,9 +132,49 @@ export default function StepConfigPanel({
   const stepType = (node.data?.stepType as string) || "action";
   const fields = getFieldsForStepType(stepType);
   const existingConfig = (node.data?.config as Record<string, unknown>) || {};
+  const workflowId = Number(useParams().id);
 
   const [config, setConfig] = useState<Record<string, unknown>>({ ...existingConfig });
   const [label, setLabel] = useState((node.data?.label as string) || "");
+  const [regenerateConfirm, setRegenerateConfirm] = useState(false);
+
+  // Webhook data
+  const nodeId = Number(node.id);
+
+  const { data: webhooksData } = useQuery({
+    queryKey: ["webhooks", workflowId, nodeId],
+    queryFn: () => webhooksApi.list(workflowId),
+    enabled: stepType === "webhook" && !!workflowId,
+  });
+
+  const webhook = Array.isArray(webhooksData?.data)
+    ? webhooksData.data.find((wh) => wh.step_id === nodeId)
+    : undefined;
+
+  const toggleMutation = useMutation({
+    mutationFn: () => webhooksApi.toggle(webhook!.id),
+    onSuccess: () => {
+      toast.success("Webhook " + (webhook?.is_active ? "désactivé" : "activé"));
+    },
+    onError: (err: Error) => {
+      toast.error("Erreur: " + err.message);
+    },
+  });
+
+  const regenerateMutation = useMutation({
+    mutationFn: () => webhooksApi.regenerate(webhook!.id),
+    onSuccess: () => {
+      toast.success("Token regénéré");
+      setRegenerateConfirm(false);
+    },
+    onError: (err: Error) => {
+      toast.error("Erreur: " + err.message);
+    },
+  });
+
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const webhookUrl = webhook ? `${baseUrl.replace(/\/api$/, "")}/api/webhook/${webhook.token}` : "";
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
   useEffect(() => {
     setConfig({ ...existingConfig });
@@ -239,14 +283,154 @@ export default function StepConfigPanel({
                 }}
               />
             )}
-          </div>
-        ))}
-        {stepType === "code" && (
-          <div className="rounded-md border border-cyan-900/50 bg-cyan-950/20 p-3">
-            <p className="text-xs text-cyan-400 leading-relaxed">
-              The code runs in a sandboxed Node.js VM. Use <code className="text-cyan-300 font-mono text-[11px] bg-cyan-950/50 px-1 rounded">return</code> to output data. Input is available in <code className="text-cyan-300 font-mono text-[11px] bg-cyan-950/50 px-1 rounded">input</code> object.
-            </p>
-          </div>
+            {stepType === "code" && (
+              <div className="rounded-md border border-cyan-900/50 bg-cyan-950/20 p-3">
+                <p className="text-xs text-cyan-400 leading-relaxed">
+                  The code runs in a sandboxed Node.js VM. Use <code className="text-cyan-300 font-mono text-[11px] bg-cyan-950/50 px-1 rounded">return</code> to output data. Input is available in <code className="text-cyan-300 font-mono text-[11px] bg-cyan-950/50 px-1 rounded">input</code> object.
+                </p>
+              </div>
+            )}
+
+            {/* Webhook Info */}
+            {stepType === "webhook" && (
+              <div className="border-t border-zinc-800 pt-4 mt-2 space-y-3">
+                <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                  Webhook
+                </h4>
+
+                {webhook ? (
+                  <>
+                    {/* URL */}
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+                        URL
+                      </label>
+                      <div className="flex gap-1">
+                        <code className="flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-200 font-mono truncate">
+                          {webhookUrl}
+                        </code>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 shrink-0 text-zinc-400 hover:text-zinc-200"
+                          onClick={() => {
+                            navigator.clipboard.writeText(webhookUrl);
+                            toast.success("URL copiée");
+                          }}
+                          title="Copier l'URL"
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Status */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-zinc-400">Statut</span>
+                      <span
+                        className={`text-xs font-semibold flex items-center gap-1 ${
+                          webhook.is_active ? "text-green-400" : "text-red-400"
+                        }`}
+                      >
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            webhook.is_active ? "bg-green-400" : "bg-red-400"
+                          }`}
+                        />
+                        {webhook.is_active ? "Actif" : "Inactif"}
+                      </span>
+                    </div>
+
+                    {/* Toggle button */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={`w-full text-xs ${
+                        webhook.is_active
+                          ? "border-red-800/50 text-red-400 hover:bg-red-950/30"
+                          : "border-green-800/50 text-green-400 hover:bg-green-950/30"
+                      }`}
+                      onClick={() => toggleMutation.mutate()}
+                      disabled={toggleMutation.isPending}
+                    >
+                      {webhook.is_active ? (
+                        <PowerOff className="h-3.5 w-3.5 mr-1.5" />
+                      ) : (
+                        <Power className="h-3.5 w-3.5 mr-1.5" />
+                      )}
+                      {webhook.is_active ? "Désactiver" : "Activer"}
+                    </Button>
+
+                    {/* Regenerate token */}
+                    {!regenerateConfirm ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+                        onClick={() => setRegenerateConfirm(true)}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                        Regénérer le token
+                      </Button>
+                    ) : (
+                      <div className="flex gap-1">
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="flex-1 text-xs"
+                          onClick={() => regenerateMutation.mutate()}
+                          disabled={regenerateMutation.isPending}
+                        >
+                          {regenerateMutation.isPending ? (
+                            <span className="animate-spin">⟳</span>
+                          ) : (
+                            <Check className="h-3.5 w-3.5 mr-1" />
+                          )}
+                          Confirmer
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs text-zinc-400"
+                          onClick={() => setRegenerateConfirm(false)}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="rounded-md border border-zinc-800 bg-zinc-900/50 p-3">
+                    <p className="text-xs text-zinc-500 text-center">
+                      {webhooksData ? (
+                        <>
+                          Aucun webhook configuré pour ce step.
+                          <br />
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="text-xs text-violet-400 px-0 h-auto"
+                            onClick={async () => {
+                              try {
+                                await webhooksApi.create(workflowId, nodeId);
+                                toast.success("Webhook créé");
+                              } catch (err: any) {
+                                toast.error("Erreur: " + err.message);
+                              }
+                            }}
+                          >
+                            Créer un webhook
+                          </Button>
+                        </>
+                      ) : (
+                        "Chargement..."
+                      )}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+            </div>
         )}
       </div>
 
