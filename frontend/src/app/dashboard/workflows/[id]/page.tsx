@@ -38,6 +38,7 @@ import {
   FileDown,
   LayoutGrid,
   Link as LinkIcon,
+  RotateCcw,
   UserCheck,
   Sparkles,
 } from "lucide-react";
@@ -67,6 +68,7 @@ import AiNode from "@/components/workflow/nodes/AiNode";
 const nodeTypes = {
   trigger: TriggerNode,
   webhook: WebhookNode,
+  schedule: TriggerNode,
   action: ActionNode,
   condition: ConditionNode,
   delay: DelayNode,
@@ -75,6 +77,7 @@ const nodeTypes = {
   transform: TransformNode,
   error_handler: ErrorHandlerNode,
   code: CodeNode,
+  loop: ActionNode,
   approval: ApprovalNode,
   ai: AiNode,
 };
@@ -102,6 +105,7 @@ const paletteItems: PaletteItem[] = [
   { type: "transform", label: "Transform", category: "action", icon: <Code className="h-3.5 w-3.5" /> },
   { type: "code", label: "Code", category: "action", icon: <Code2 className="h-3.5 w-3.5" /> },
   { type: "error_handler", label: "Error Handler", category: "action", icon: <ShieldAlert className="h-3.5 w-3.5" /> },
+  { type: "loop", label: "Loop", category: "action", icon: <RotateCcw className="h-3.5 w-3.5" /> },
   { type: "approval", label: "Approval", category: "action", icon: <UserCheck className="h-3.5 w-3.5" /> },
   { type: "ai", label: "AI", category: "action", icon: <Sparkles className="h-3.5 w-3.5" /> },
 ];
@@ -187,7 +191,7 @@ export default function WorkflowBuilderPage() {
     queryKey: ["connections", workflowId],
     queryFn: async () => {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"}/workflows/${workflowId}/connections`
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"}/workflows/${workflowId}/step-connections`
       );
       return res.json();
     },
@@ -211,8 +215,7 @@ export default function WorkflowBuilderPage() {
     if (stepsData?.data && stepsData.data.length > 0) {
       const flowNodes: Node[] = stepsData.data.map((step) => ({
         id: String(step.id),
-        type: step.step_type === "loop" ? "action"
-          : step.step_type,
+        type: step.step_type,
         position: {
           x: step.position_x ?? 250,
           y: step.position_y ?? 0,

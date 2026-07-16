@@ -20,6 +20,7 @@ class StepRunnerService
             'code' => new CodeRunner(),
             'approval' => new ApprovalRunner(),
             'ai' => new AiRunner(),
+            'loop' => new LoopRunner(),
         ];
     }
 

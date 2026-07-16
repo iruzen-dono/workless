@@ -122,6 +122,25 @@ function getFieldsForStepType(stepType: string): ConfigField[] {
           ],
         },
       ];
+    case "loop":
+      return [
+        { key: "label", label: "Label", type: "text", placeholder: "Loop" },
+        { key: "max_iterations", label: "Max Iterations", type: "number", placeholder: "3" },
+        { key: "condition_field", label: "Exit Condition Field", type: "text", placeholder: "(optional) e.g. data.status" },
+        {
+          key: "condition_operator",
+          label: "Exit Condition Operator",
+          type: "select",
+          options: [
+            { label: "None", value: "" },
+            { label: "==", value: "==" },
+            { label: "!=", value: "!=" },
+            { label: ">", value: ">" },
+            { label: "<", value: "<" },
+          ],
+        },
+        { key: "condition_value", label: "Exit Condition Value", type: "text", placeholder: "(optional) e.g. done" },
+      ];
     case "ai":
       return [
         { key: "label", label: "Label", type: "text", placeholder: "AI step" },

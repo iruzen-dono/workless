@@ -20,7 +20,7 @@ export interface Workflow {
   updated_at: string;
 }
 
-export type StepType = 'trigger' | 'action' | 'condition' | 'delay' | 'loop' | 'transform' | 'http_request' | 'email_send' | 'discord_message' | 'telegram_message' | 'slack_message' | 'code' | 'ai_prompt' | 'database_query' | 'sub_workflow';
+export type StepType = 'trigger' | 'webhook' | 'schedule' | 'action' | 'condition' | 'delay' | 'loop' | 'transform' | 'http_request' | 'email' | 'error_handler' | 'code' | 'approval' | 'ai';
 
 export interface Step {
   id: number;
